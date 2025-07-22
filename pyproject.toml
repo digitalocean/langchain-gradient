@@ -1,0 +1,75 @@
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+name = "langchain-gradientai"
+version = "0.1.16"
+description = "An integration package connecting Digitalocean and LangChain"
+authors = []
+readme = "README.md"
+repository = "https://github.com/langchain-ai/langchain"
+license = "MIT"
+
+[tool.mypy]
+disallow_untyped_defs = "True"
+
+[tool.poetry.urls]
+"Source Code" = "https://github.com/langchain-ai/langchain/tree/master/libs/partners/gradientai"
+"Release Notes" = "https://github.com/langchain-ai/langchain/releases?q=tag%3A%22gradientai%3D%3D0%22&expanded=true"
+
+[tool.poetry.dependencies]
+python = ">=3.9,<4.0"
+langchain-core = "^0.3.15"
+python-digitalocean = "^1.17.0"
+langchain-tests = "^0.3.20"
+c63a5cfe-b235-4fbe-8bbb-82a9e02a482a-python = {version = "^0.1.0a17", allow-prereleases = true}
+python-dotenv = "^1.1.1"
+typing_extensions = "^4.0.0"
+do-gradientai = "^0.1.0a19"
+
+[tool.coverage.run]
+omit = ["tests/*"]
+
+[tool.pytest.ini_options]
+addopts = "--strict-markers --strict-config --durations=5"
+markers = [
+    "compile: mark placeholder test used to compile integration tests without running them",
+]
+
+[tool.poetry.group.test]
+optional = true
+
+[tool.poetry.group.codespell]
+optional = true
+
+[tool.poetry.group.test_integration]
+optional = true
+
+[tool.poetry.group.lint]
+optional = true
+
+[tool.poetry.group.dev]
+optional = true
+
+[tool.poetry.group.dev.dependencies]
+black = "^25.1.0"
+ruff = "^0.12.4"
+
+[tool.poetry.group.test.dependencies]
+pytest = "^7.4.3"
+pytest-asyncio = "^0.23.2"
+pytest-socket = "^0.7.0"
+pytest-watcher = "^0.3.4"
+langchain-tests = "0.3.20"
+
+[tool.poetry.group.codespell.dependencies]
+codespell = "^2.2.6"
+
+[tool.poetry.group.test_integration.dependencies]
+
+[tool.poetry.group.lint.dependencies]
+
+
+[tool.poetry.group.typing.dependencies]
+mypy = "^1.10"

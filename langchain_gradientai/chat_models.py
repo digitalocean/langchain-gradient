@@ -1,0 +1,262 @@
+"""LangchainDigitalocean chat models."""
+
+import os
+from typing import Any, Dict, Iterator, List, Optional, Union
+
+from do_gradientai import GradientAI
+from langchain_core.callbacks import (
+    CallbackManagerForLLMRun,
+)
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import (
+    AIMessage,
+    AIMessageChunk,
+    BaseMessage,
+)
+from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
+from pydantic import Field, model_validator
+from typing_extensions import TypedDict
+
+from .constants import ALLOWED_MODEL_FIELDS
+
+
+class StreamOptions(TypedDict, total=False):
+    include_usage: bool
+
+
+class ChatGradientAI(BaseChatModel):
+    api_key: Optional[str] = Field(default=os.environ.get("DIGITALOCEAN_INFERENCE_KEY"))
+    """GradientAI API key."""
+    model_name: str = Field(default="llama3.3-70b-instruct", alias="model")
+    """Model name to use."""
+    frequency_penalty: Optional[float] = None
+    """Penalizes repeated tokens according to frequency."""
+    logit_bias: Optional[Dict[str, float]] = None
+    """Bias for logits."""
+    logprobs: Optional[bool] = None
+    """Whether to return logprobs."""
+    max_completion_tokens: Optional[int] = None
+    """Maximum number of tokens to generate."""
+    max_tokens: Optional[int] = Field(default=None)
+    """Maximum number of tokens to generate."""
+    metadata: Optional[Dict[str, str]] = None
+    """Metadata to include in the request."""
+    n: Optional[int] = None
+    """Number of chat completions to generate for each prompt."""
+    presence_penalty: Optional[float] = None
+    """Penalizes repeated tokens."""
+    stop: Union[Optional[str], List[str], None] = Field(
+        default=None, alias="stop_sequences"
+    )
+    """Default stop sequences."""
+    streaming: Optional[bool] = Field(default=False, alias="stream")
+    """Whether to stream the results or not."""
+    stream_options: Optional[StreamOptions] = None
+    """Stream options."""
+    temperature: Optional[float] = None
+    """What sampling temperature to use."""
+    top_logprobs: Optional[int] = None
+    """The number of top logprobs to return."""
+    top_p: Optional[float] = None
+    """Total probability mass of tokens to consider at each step."""
+    user: str = "langchain-gradientai"
+    """A unique identifier representing the user."""
+    timeout: Optional[float] = None
+    """Timeout for requests."""
+    max_retries: int = 2
+    """Max number of retries."""
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_temperature(cls, values: dict[str, Any]) -> Any:
+        """Currently o1 models only allow temperature=1."""
+        model = values.get("model_name") or values.get("model") or ""
+        if model.startswith("o1") and "temperature" not in values:
+            values["temperature"] = 1
+        return values
+
+    @property
+    def _llm_type(self) -> str:
+        """Return type of chat model."""
+        return "chat-gradientai"
+
+    @property
+    def _identifying_params(self) -> Dict[str, Any]:
+        """Return a dictionary of identifying parameters.
+
+        This information is used by the LangChain callback system, which
+        is used for tracing purposes make it possible to monitor LLMs.
+        """
+        return {
+            # The model name allows users to specify custom token counting
+            # rules in LLM monitoring applications (e.g., in LangSmith users
+            # can provide per token pricing for their model and monitor
+            # costs for the given LLM.)
+            "model_name": self.model_name,
+        }
+
+    def _update_parameters_with_model_fields(self, parameters: dict) -> None:
+        # Only add explicitly supported model fields
+        for field in ALLOWED_MODEL_FIELDS:
+            value = getattr(self, field, None)
+            # Use the alias if defined (e.g., model_name -> model)
+            model_field = self.__class__.model_fields.get(field)
+            key = (
+                model_field.alias
+                if model_field and getattr(model_field, "alias", None)
+                else field
+            )
+            if key not in parameters and value is not None:
+                parameters[key] = value
+
+    def _generate(
+        self,
+        messages: List[BaseMessage],
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        if not self.api_key:
+            raise ValueError(
+                "GradientAI API key not provided. Set DIGITALOCEAN_INFERENCE_KEY env var or pass api_key param."
+            )
+
+        inference_client = GradientAI(
+            inference_key=self.api_key,
+            api_key=self.api_key,
+            max_retries=self.max_retries,
+        )
+
+        def convert_message(msg: BaseMessage) -> Dict[str, Any]:
+            if hasattr(msg, "type"):
+                role = {"human": "user", "ai": "assistant", "system": "system"}.get(
+                    msg.type, msg.type
+                )
+            else:
+                role = getattr(msg, "role", "user")
+            return {"role": role, "content": msg.content}
+
+        parameters: Dict[str, Any] = {
+            "messages": [convert_message(m) for m in messages],
+            "model": self.model_name,
+        }
+
+        self._update_parameters_with_model_fields(parameters)
+
+        if "stop_sequences" in parameters:
+            parameters["stop"] = parameters.pop("stop_sequences")
+
+        # Only pass expected keyword arguments to create()
+        completion = inference_client.chat.completions.create(**parameters)
+        choice = completion.choices[0]
+        content = (
+            choice.message.content
+            if hasattr(choice.message, "content")
+            else choice.message
+        )
+        usage = getattr(completion, "usage", {})
+        message_kwargs = {
+            "content": content,
+            "additional_kwargs": {},
+            "response_metadata": {"finish_reason": getattr(choice, "finish_reason", None)},
+        }
+        
+        if self.stream_options and self.stream_options.get("include_usage"):
+            message_kwargs["usage_metadata"] = {
+                "input_tokens": getattr(usage, "prompt_tokens", None),
+                "output_tokens": getattr(usage, "completion_tokens", None), 
+                "total_tokens": getattr(usage, "total_tokens", None),
+            }
+            
+        message = AIMessage(**message_kwargs)
+        generation = ChatGeneration(message=message)
+        return ChatResult(generations=[generation])
+
+    def _stream(
+        self,
+        messages: List[BaseMessage],
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> Iterator[ChatGenerationChunk]:
+        if not self.api_key:
+            raise ValueError(
+                "DigitalOcean API key not provided. Set DIGITALOCEAN_INFERENCE_KEY env var or pass api_key param."
+            )
+
+        inference_client = GradientAI(inference_key=self.api_key, api_key=self.api_key)
+
+        def convert_message(msg: BaseMessage) -> Dict[str, Any]:
+            if hasattr(msg, "type"):
+                role = {"human": "user", "ai": "assistant", "system": "system"}.get(
+                    msg.type, msg.type
+                )
+            else:
+                role = getattr(msg, "role", "user")
+            return {"role": role, "content": msg.content}
+
+        parameters: Dict[str, Any] = {
+            "messages": [convert_message(m) for m in messages],
+            "stream": self.streaming,  # Enable streaming
+            "model": self.model_name,
+        }
+
+        self._update_parameters_with_model_fields(parameters)
+        try:
+            completion = inference_client.chat.completions.create(**parameters)            
+            choice = completion.choices[0]
+            content = (
+                choice.message.content
+                if hasattr(choice.message, "content")
+                else choice.message
+            )
+            
+            chunk = ChatGenerationChunk(message=AIMessageChunk(content=content))
+            if run_manager:
+                run_manager.on_llm_new_token(content, chunk=chunk)
+
+            yield chunk
+            # Only yield usage metadata if requested via stream_options
+            if self.stream_options and self.stream_options.get("include_usage"):
+                usage = getattr(completion, "usage", {})
+                usage_metadata = {
+                    "input_tokens": getattr(usage, "prompt_tokens", None),
+                    "output_tokens": getattr(usage, "completion_tokens", None),
+                    "total_tokens": getattr(usage, "total_tokens", None),
+                }
+                if any(v is not None for v in usage_metadata.values()):
+                    yield ChatGenerationChunk(
+                        message=AIMessageChunk(
+                            content="",
+                            usage_metadata=usage_metadata,  # type: ignore
+                        )
+                    )
+        except Exception as e:
+            # Yield an error chunk if possible
+            error_chunk = ChatGenerationChunk(
+                message=AIMessageChunk(
+                    content=f"[ERROR] {str(e)}", response_metadata={"error": str(e)}
+                )
+            )
+            yield error_chunk
+
+    @property
+    def init_from_env_params(self) -> tuple[dict, dict, dict]:
+        # env_vars, model_params, expected_attrs
+        # Map DIGITALOCEAN_INFERENCE_KEY -> api_key, and require model param
+        return (
+            {"DIGITALOCEAN_INFERENCE_KEY": "test-env-key"},
+            {"model": "bird-brain-001", "buffer_length": 50},
+            {"api_key": "test-env-key", "model_name": "bird-brain-001"},
+        )
+
+    @classmethod
+    def is_lc_serializable(cls) -> bool:
+        return True
+
+    def __getstate__(self) -> dict:
+        state = self.__dict__.copy()
+        return state
+
+    def __setstate__(self, state: dict) -> None:
+        self.__dict__.update(state)

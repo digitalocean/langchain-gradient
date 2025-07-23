@@ -268,7 +268,10 @@ def test_invalid_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     reason="No GradientAI API key set",
 )
 def test_usage_metadata_in_invoke() -> None:
-    llm = ChatGradientAI(api_key=os.environ.get("DIGITALOCEAN_INFERENCE_KEY"))
+    llm = ChatGradientAI(
+        api_key=os.environ.get("DIGITALOCEAN_INFERENCE_KEY"),
+        stream_options={"include_usage": True},
+    )
     result = llm.invoke([HumanMessage(content="Say hello!")])
     assert hasattr(result, "usage_metadata")
     assert result.usage_metadata is not None

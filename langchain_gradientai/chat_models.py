@@ -25,6 +25,79 @@ class StreamOptions(TypedDict, total=False):
 
 
 class ChatGradientAI(BaseChatModel):
+    """
+    ChatGradientAI chat model for DigitalOcean GradientAI.
+
+    This class provides an interface to the DigitalOcean GradientAI chat completion API,
+    compatible with LangChain's chat model interface. It supports both standard and streaming
+    chat completions, and exposes model parameters for fine-tuning requests.
+
+    Parameters
+    ----------
+    api_key : Optional[str]
+        GradientAI API key. If not provided, will use the DIGITALOCEAN_INFERENCE_KEY environment variable.
+    model_name : str
+        Model name to use. Defaults to "llama3.3-70b-instruct".
+    frequency_penalty : Optional[float]
+        Penalizes repeated tokens according to frequency.
+    logit_bias : Optional[Dict[str, float]]
+        Bias for logits.
+    logprobs : Optional[bool]
+        Whether to return logprobs.
+    max_completion_tokens : Optional[int]
+        Maximum number of tokens to generate.
+    max_tokens : Optional[int]
+        Maximum number of tokens to generate.
+    metadata : Optional[Dict[str, str]]
+        Metadata to include in the request.
+    n : Optional[int]
+        Number of chat completions to generate for each prompt.
+    presence_penalty : Optional[float]
+        Penalizes repeated tokens.
+    stop : Union[Optional[str], List[str], None]
+        Default stop sequences.
+    streaming : Optional[bool]
+        Whether to stream the results or not.
+    stream_options : Optional[StreamOptions]
+        Stream options. If include_usage is True, token usage metadata will be included in responses.
+    temperature : Optional[float]
+        What sampling temperature to use.
+    top_logprobs : Optional[int]
+        The number of top logprobs to return.
+    top_p : Optional[float]
+        Total probability mass of tokens to consider at each step.
+    user : str
+        A unique identifier representing the user. Defaults to "langchain-gradientai".
+    timeout : Optional[float]
+        Timeout for requests.
+    max_retries : int
+        Max number of retries. Defaults to 2.
+
+    Example
+    -------
+    ```python
+    from langchain_core.messages import HumanMessage
+    from langchain_gradientai import ChatGradientAI
+
+    chat = ChatGradientAI(model_name="llama3.3-70b-instruct")
+    response = chat.invoke([
+        HumanMessage(content="What is the capital of France?")
+    ])
+    print(response)
+    ```
+
+    Output:
+    ```python
+    AIMessage(content="The capital of France is Paris.")
+    ```
+
+    Methods
+    -------
+    _generate(messages, ...)
+        Generate a chat completion for the given messages.
+    _stream(messages, ...)
+        Stream chat completions for the given messages.
+    """
     api_key: Optional[str] = Field(default=os.environ.get("DIGITALOCEAN_INFERENCE_KEY"))
     """GradientAI API key."""
     model_name: str = Field(default="llama3.3-70b-instruct", alias="model")
@@ -155,19 +228,27 @@ class ChatGradientAI(BaseChatModel):
             else choice.message
         )
         usage = getattr(completion, "usage", {})
+        response_metadata = {
+            "finish_reason": getattr(choice, "finish_reason", None),
+            "token_usage": {
+                "completion_tokens": getattr(usage, "completion_tokens", None),
+                "prompt_tokens": getattr(usage, "prompt_tokens", None),
+                "total_tokens": getattr(usage, "total_tokens", None),
+            },
+            "model_name": getattr(completion, "model", None),
+            "id": getattr(completion, "id", None),
+        }
         message_kwargs = {
             "content": content,
-            "additional_kwargs": {},
-            "response_metadata": {"finish_reason": getattr(choice, "finish_reason", None)},
+            "additional_kwargs": {"refusal": getattr(choice.message, "refusal", None)},
+            "response_metadata": response_metadata,
         }
-        
         if self.stream_options and self.stream_options.get("include_usage"):
             message_kwargs["usage_metadata"] = {
                 "input_tokens": getattr(usage, "prompt_tokens", None),
-                "output_tokens": getattr(usage, "completion_tokens", None), 
+                "output_tokens": getattr(usage, "completion_tokens", None),
                 "total_tokens": getattr(usage, "total_tokens", None),
             }
-            
         message = AIMessage(**message_kwargs)
         generation = ChatGeneration(message=message)
         return ChatResult(generations=[generation])
@@ -197,26 +278,26 @@ class ChatGradientAI(BaseChatModel):
 
         parameters: Dict[str, Any] = {
             "messages": [convert_message(m) for m in messages],
-            "stream": self.streaming,  # Enable streaming
+            "stream": True,  # Enable streaming
             "model": self.model_name,
         }
-
+        
         self._update_parameters_with_model_fields(parameters)
-        try:
-            completion = inference_client.chat.completions.create(**parameters)            
-            choice = completion.choices[0]
-            content = (
-                choice.message.content
-                if hasattr(choice.message, "content")
-                else choice.message
-            )
-            
-            chunk = ChatGenerationChunk(message=AIMessageChunk(content=content))
-            if run_manager:
-                run_manager.on_llm_new_token(content, chunk=chunk)
 
-            yield chunk
-            # Only yield usage metadata if requested via stream_options
+        try:
+            stream = inference_client.chat.completions.create(**parameters)
+            for completion in stream:
+                # Extract the streamed content
+                content = completion.choices[0].delta.content
+                if not content:
+                    continue  # skip empty chunks
+
+                chunk = ChatGenerationChunk(message=AIMessageChunk(content=content))
+                if run_manager:
+                    run_manager.on_llm_new_token(content, chunk=chunk)
+                yield chunk
+
+            # Optionally yield usage metadata at the end if available
             if self.stream_options and self.stream_options.get("include_usage"):
                 usage = getattr(completion, "usage", {})
                 usage_metadata = {

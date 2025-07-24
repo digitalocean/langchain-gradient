@@ -52,7 +52,9 @@ load_dotenv()
 
 llm = ChatGradientAI(
     model="llama3.3-70b-instruct",
-    api_key=os.getenv("DIGITALOCEAN_INFERENCE_KEY")
+    api_key=os.getenv("DIGITALOCEAN_INFERENCE_KEY"),
+    streaming=True,
+    stream_options={"include_usage": True}
 )
 
 for chunk in llm.stream("Tell me what happened to the Dinosaurs?"):

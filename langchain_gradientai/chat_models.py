@@ -278,37 +278,26 @@ class ChatGradientAI(BaseChatModel):
 
         parameters: Dict[str, Any] = {
             "messages": [convert_message(m) for m in messages],
-            "stream": self.streaming,  # Enable streaming
+            "stream": True,  # Enable streaming
             "model": self.model_name,
         }
-
+        
         self._update_parameters_with_model_fields(parameters)
-        try:
-            completion = inference_client.chat.completions.create(**parameters)            
-            choice = completion.choices[0]
-            content = (
-                choice.message.content
-                if hasattr(choice.message, "content")
-                else choice.message
-            )
-            
-            chunk = ChatGenerationChunk(message=AIMessageChunk(content=content,
-                response_metadata={
-                    "finish_reason": getattr(choice, "finish_reason", None),
-                    "token_usage": {
-                        "completion_tokens": getattr(getattr(completion, "usage", {}), "completion_tokens", None),
-                        "prompt_tokens": getattr(getattr(completion, "usage", {}), "prompt_tokens", None),
-                        "total_tokens": getattr(getattr(completion, "usage", {}), "total_tokens", None),
-                    },
-                    "model_name": getattr(completion, "model", None),
-                    "id": getattr(completion, "id", None),
-                }
-            ))
-            if run_manager:
-                run_manager.on_llm_new_token(content, chunk=chunk)
 
-            yield chunk
-            # Only yield usage metadata if requested via stream_options
+        try:
+            stream = inference_client.chat.completions.create(**parameters)
+            for completion in stream:
+                # Extract the streamed content
+                content = completion.choices[0].delta.content
+                if not content:
+                    continue  # skip empty chunks
+
+                chunk = ChatGenerationChunk(message=AIMessageChunk(content=content))
+                if run_manager:
+                    run_manager.on_llm_new_token(content, chunk=chunk)
+                yield chunk
+
+            # Optionally yield usage metadata at the end if available
             if self.stream_options and self.stream_options.get("include_usage"):
                 usage = getattr(completion, "usage", {})
                 usage_metadata = {

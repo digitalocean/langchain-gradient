@@ -1,6 +1,6 @@
 # Tests
 
-This directory contains mainly integration tests for the `langchain-gradientai` package.
+This directory contains mainly integration tests for the `langchain-gradient` package.
 
 ## Prerequisites
 

@@ -1,7 +1,7 @@
 import os
 import pytest
 from langchain_core.messages import HumanMessage
-from langchain_gradientai.chat_models import ChatGradientAI
+from langchain_gradient.chat_models import ChatGradient
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -11,14 +11,15 @@ MODEL = "llama3.3-70b-instruct"
 
 pytestmark = pytest.mark.skipif(
     not API_KEY,
-    reason="No GradientAI API key set",
+    reason="No Gradient API key set",
 )
 
+
 def _basic_llm(**kwargs):
-    return ChatGradientAI(model=MODEL, api_key=API_KEY, **kwargs)
+    return ChatGradient(model=MODEL, api_key=API_KEY, **kwargs)
 
 def _basic_prompt():
-    return [HumanMessage(content="Say hello to the world!")]
+    return [HumanMessage(content="Say hello!")]
 
 def test_temperature_param():
     llm_cold = _basic_llm(temperature=0)
@@ -71,7 +72,7 @@ def test_top_p_param():
     # Not easy to assert, but should return a valid string
     assert isinstance(result.content, str)
 
-# TODO: Should be tested with once its fixed in GradientAI SDK
+# TODO: Should be tested with once its fixed in Gradient SDK
 # def test_n_param():
 #     llm = _basic_llm(n=2)
 #     prompt = _basic_prompt()

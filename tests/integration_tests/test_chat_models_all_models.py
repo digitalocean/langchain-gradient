@@ -1,7 +1,7 @@
 import os
 import pytest
 from langchain_core.messages import HumanMessage
-from langchain_gradientai.chat_models import ChatGradientAI
+from langchain_gradient.chat_models import ChatGradient
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -24,11 +24,11 @@ MODELS_TO_TEST = [
 
 @pytest.mark.skipif(
     not os.environ.get("DIGITALOCEAN_INFERENCE_KEY"),
-    reason="No GradientAI API key set",
+    reason="No Gradient API key set",
 )
 @pytest.mark.parametrize("model_name", MODELS_TO_TEST)
-def test_chatgradientai_all_models(model_name):
-    llm = ChatGradientAI(
+def test_chatgradient_all_models(model_name):
+    llm = ChatGradient(
         model=model_name,
         temperature=0,
         api_key=os.environ.get("DIGITALOCEAN_INFERENCE_KEY"),

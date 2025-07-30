@@ -1,7 +1,7 @@
 import os
 import pytest
 from langchain_core.messages import HumanMessage
-from langchain_gradientai.chat_models import ChatGradientAI
+from langchain_gradient.chat_models import ChatGradient
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -11,11 +11,11 @@ MODEL = "llama3.3-70b-instruct"
 
 pytestmark = pytest.mark.skipif(
     not API_KEY,
-    reason="No GradientAI API key set",
+    reason="No Gradient API key set",
 )
 
 def test_stream_first_and_last_chunk():
-    llm = ChatGradientAI(model=MODEL, api_key=API_KEY, streaming=True)
+    llm = ChatGradient(model=MODEL, api_key=API_KEY, streaming=True)
     prompt = [HumanMessage(content="Display three cities in the world")]
     stream = llm.stream(prompt)
     found = False

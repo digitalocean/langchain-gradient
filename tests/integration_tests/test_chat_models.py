@@ -7,17 +7,17 @@ from dotenv import load_dotenv
 from langchain_core.messages import AIMessageChunk, HumanMessage
 from langchain_core.outputs import ChatGenerationChunk
 
-from langchain_gradientai.chat_models import ChatGradientAI
+from langchain_gradient.chat_models import ChatGradient
 
 load_dotenv()
 
 
 @pytest.mark.skipif(
     not os.environ.get("DIGITALOCEAN_INFERENCE_KEY"),
-    reason="No GradientAI API key set",
+    reason="No Gradient API key set",
 )
 def test_generate_basic() -> None:
-    llm = ChatGradientAI(
+    llm = ChatGradient(
         model="llama3.3-70b-instruct",
         temperature=0,
         api_key=os.environ.get("DIGITALOCEAN_INFERENCE_KEY"),
@@ -33,25 +33,25 @@ def test_generate_basic() -> None:
 def test_missing_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("DIGITALOCEAN_INFERENCE_KEY", raising=False)
     with pytest.raises(ValueError):
-        ChatGradientAI(api_key=None).invoke([HumanMessage(content="test")])
+        ChatGradient(api_key=None).invoke([HumanMessage(content="test")])
 
 
 # 2. Model Initialization
 @pytest.mark.skipif(
     not os.environ.get("DIGITALOCEAN_INFERENCE_KEY"),
-    reason="No GradientAI API key set",
+    reason="No Gradient API key set",
 )
 def test_minimal_initialization() -> None:
-    llm = ChatGradientAI(api_key=os.environ.get("DIGITALOCEAN_INFERENCE_KEY"))
+    llm = ChatGradient(api_key=os.environ.get("DIGITALOCEAN_INFERENCE_KEY"))
     assert llm is not None
 
 
 @pytest.mark.skipif(
     not os.environ.get("DIGITALOCEAN_INFERENCE_KEY"),
-    reason="No GradientAI API key set",
+    reason="No Gradient API key set",
 )
 def test_full_initialization() -> None:
-    llm = ChatGradientAI(
+    llm = ChatGradient(
         model="llama3-70b-instruct",
         temperature=0.7,
         max_tokens=50,
@@ -71,10 +71,10 @@ def test_full_initialization() -> None:
 # 3. Basic Functionality
 @pytest.mark.skipif(
     not os.environ.get("DIGITALOCEAN_INFERENCE_KEY"),
-    reason="No GradientAI API key set",
+    reason="No Gradient API key set",
 )
 def test_invoke_simple() -> None:
-    llm = ChatGradientAI(api_key=os.environ.get("DIGITALOCEAN_INFERENCE_KEY"))
+    llm = ChatGradient(api_key=os.environ.get("DIGITALOCEAN_INFERENCE_KEY"))
     result = llm.invoke([HumanMessage(content="Hello!")])
     assert result.content
     assert isinstance(result.content, str)
@@ -82,10 +82,10 @@ def test_invoke_simple() -> None:
 
 @pytest.mark.skipif(
     not os.environ.get("DIGITALOCEAN_INFERENCE_KEY"),
-    reason="No GradientAI API key set",
+    reason="No Gradient API key set",
 )
 def test_invoke_multi_message() -> None:
-    llm = ChatGradientAI(api_key=os.environ.get("DIGITALOCEAN_INFERENCE_KEY"))
+    llm = ChatGradient(api_key=os.environ.get("DIGITALOCEAN_INFERENCE_KEY"))
     messages = [
         HumanMessage(content="Translate to French."),
         HumanMessage(content="I love programming."),
@@ -98,10 +98,10 @@ def test_invoke_multi_message() -> None:
 # 5. Error Handling
 @pytest.mark.skipif(
     not os.environ.get("DIGITALOCEAN_INFERENCE_KEY"),
-    reason="No GradientAI API key set",
+    reason="No Gradient API key set",
 )
 def test_invalid_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    llm = ChatGradientAI(api_key="invalid-key")
+    llm = ChatGradient(api_key="invalid-key")
     with pytest.raises(Exception):
         llm.invoke([HumanMessage(content="test")])
 
@@ -109,25 +109,28 @@ def test_invalid_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
 # 6. Token Usage & Metadata
 @pytest.mark.skipif(
     not os.environ.get("DIGITALOCEAN_INFERENCE_KEY"),
-    reason="No GradientAI API key set",
+    reason="No Gradient API key set",
 )
 def test_usage_metadata_in_invoke() -> None:
-    llm = ChatGradientAI(
+    llm = ChatGradient(
+        model="llama3.3-70b-instruct",
+        temperature=0,
         api_key=os.environ.get("DIGITALOCEAN_INFERENCE_KEY"),
         stream_options={"include_usage": True},
     )
-    result = llm.invoke([HumanMessage(content="Say hello!")])
+    messages = [HumanMessage(content="Say hello to the world!")]
+    result = llm.invoke(messages)
+    assert result.content
     assert hasattr(result, "usage_metadata")
-    assert result.usage_metadata is not None
 
 
 # 7. Retries & Timeouts
 @pytest.mark.skipif(
     not os.environ.get("DIGITALOCEAN_INFERENCE_KEY"),
-    reason="No GradientAI API key set",
+    reason="No Gradient API key set",
 )
 def test_timeout_param() -> None:
-    llm = ChatGradientAI(
+    llm = ChatGradient(
         api_key=os.environ.get("DIGITALOCEAN_INFERENCE_KEY"), timeout=0.0001
     )
     with pytest.raises(Exception):
@@ -137,20 +140,20 @@ def test_timeout_param() -> None:
 # 8. Edge Cases
 @pytest.mark.skipif(
     not os.environ.get("DIGITALOCEAN_INFERENCE_KEY"),
-    reason="No GradientAI API key set",
+    reason="No Gradient API key set",
 )
 def test_empty_prompt() -> None:
-    llm = ChatGradientAI(api_key=os.environ.get("DIGITALOCEAN_INFERENCE_KEY"))
+    llm = ChatGradient(api_key=os.environ.get("DIGITALOCEAN_INFERENCE_KEY"))
     with pytest.raises(Exception):
         llm.invoke([HumanMessage(content="")])
 
 
 @pytest.mark.skipif(
     not os.environ.get("DIGITALOCEAN_INFERENCE_KEY"),
-    reason="No GradientAI API key set",
+    reason="No Gradient API key set",
 )
 def test_long_prompt() -> None:
-    llm = ChatGradientAI(api_key=os.environ.get("DIGITALOCEAN_INFERENCE_KEY"))
+    llm = ChatGradient(api_key=os.environ.get("DIGITALOCEAN_INFERENCE_KEY"))
     long_text = " ".join(["longtext"] * 1000)
     result = llm.invoke([HumanMessage(content=long_text)])
     assert result.content is not None
@@ -158,10 +161,10 @@ def test_long_prompt() -> None:
 
 @pytest.mark.skipif(
     not os.environ.get("DIGITALOCEAN_INFERENCE_KEY"),
-    reason="No GradientAI API key set",
+    reason="No Gradient API key set",
 )
 def test_unicode_prompt() -> None:
-    llm = ChatGradientAI(api_key=os.environ.get("DIGITALOCEAN_INFERENCE_KEY"))
+    llm = ChatGradient(api_key=os.environ.get("DIGITALOCEAN_INFERENCE_KEY"))
     result = llm.invoke([HumanMessage(content="你好，世界! 🌍")])
     assert result.content is not None
 

@@ -6,15 +6,15 @@ from typing import Type
 from dotenv import load_dotenv
 from langchain_tests.unit_tests import ChatModelUnitTests
 
-from langchain_gradientai.chat_models import ChatGradientAI
+from langchain_gradient.chat_models import ChatGradient
 
 load_dotenv()
 
 
-class TestChatGradientAIUnit(ChatModelUnitTests):
+class TestChatGradientUnit(ChatModelUnitTests):
     @property
-    def chat_model_class(self) -> Type[ChatGradientAI]:
-        return ChatGradientAI
+    def chat_model_class(self) -> Type[ChatGradient]:
+        return ChatGradient
 
     @property
     def chat_model_params(self) -> dict:

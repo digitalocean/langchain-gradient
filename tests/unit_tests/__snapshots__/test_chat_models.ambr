@@ -1,0 +1,21 @@
+# serializer version: 1
+# name: TestChatGradientUnit.test_serdes[serialized]
+  dict({
+    'id': list([
+      'langchain_gradient',
+      'chat_models',
+      'ChatGradient',
+    ]),
+    'kwargs': dict({
+      'max_retries': 2,
+      'max_tokens': 100,
+      'model_name': 'llama3.3-70b-instruct',
+      'temperature': 0.0,
+      'timeout': 60.0,
+      'user': 'langchain-gradient',
+    }),
+    'lc': 1,
+    'name': 'ChatGradient',
+    'type': 'constructor',
+  })
+# ---

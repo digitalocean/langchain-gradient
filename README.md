@@ -1,4 +1,5 @@
-# langchain-gradient
+# langchain-gradient  
+[![PyPI Downloads](https://static.pepy.tech/badge/langchain-gradient)](https://pepy.tech/projects/langchain-gradient)
 
 This package contains the LangChain integration with DigitalOcean
 

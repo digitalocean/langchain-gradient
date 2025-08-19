@@ -24,18 +24,18 @@ class StreamOptions(TypedDict, total=False):
     include_usage: bool
 
 
-class ChatGradientAI(BaseChatModel):
+class ChatGradient(BaseChatModel):
     """
-    ChatGradientAI chat model for DigitalOcean GradientAI.
+    ChatGradient model for DigitalOcean Gradient.
 
-    This class provides an interface to the DigitalOcean GradientAI chat completion API,
+    This class provides an interface to the DigitalOcean Gradient chat completion API,
     compatible with LangChain's chat model interface. It supports both standard and streaming
     chat completions, and exposes model parameters for fine-tuning requests.
 
     Parameters
     ----------
     api_key : Optional[str]
-        GradientAI API key. If not provided, will use the DIGITALOCEAN_INFERENCE_KEY environment variable.
+        Gradient API key. If not provided, will use the DIGITALOCEAN_INFERENCE_KEY environment variable.
     model_name : str
         Model name to use. Defaults to "llama3.3-70b-instruct".
     frequency_penalty : Optional[float]
@@ -67,7 +67,7 @@ class ChatGradientAI(BaseChatModel):
     top_p : Optional[float]
         Total probability mass of tokens to consider at each step.
     user : str
-        A unique identifier representing the user. Defaults to "langchain-gradientai".
+        A unique identifier representing the user. Defaults to "langchain-gradient".
     timeout : Optional[float]
         Timeout for requests.
     max_retries : int
@@ -77,9 +77,9 @@ class ChatGradientAI(BaseChatModel):
     -------
     ```python
     from langchain_core.messages import HumanMessage
-    from langchain_gradientai import ChatGradientAI
+    from langchain_gradient import ChatGradient
 
-    chat = ChatGradientAI(model_name="llama3.3-70b-instruct")
+    chat = ChatGradient(model_name="llama3.3-70b-instruct")
     response = chat.invoke([
         HumanMessage(content="What is the capital of France?")
     ])
@@ -99,7 +99,7 @@ class ChatGradientAI(BaseChatModel):
         Stream chat completions for the given messages.
     """
     api_key: Optional[str] = Field(default=os.environ.get("DIGITALOCEAN_INFERENCE_KEY"))
-    """GradientAI API key."""
+    """Gradient API key."""
     model_name: str = Field(default="llama3.3-70b-instruct", alias="model")
     """Model name to use."""
     frequency_penalty: Optional[float] = None
@@ -132,7 +132,7 @@ class ChatGradientAI(BaseChatModel):
     """The number of top logprobs to return."""
     top_p: Optional[float] = None
     """Total probability mass of tokens to consider at each step."""
-    user: str = "langchain-gradientai"
+    user: str = "langchain-gradient"
     """A unique identifier representing the user."""
     timeout: Optional[float] = None
     """Timeout for requests."""
@@ -151,7 +151,7 @@ class ChatGradientAI(BaseChatModel):
     @property
     def _llm_type(self) -> str:
         """Return type of chat model."""
-        return "chat-gradientai"
+        return "chat-gradient"
 
     @property
     def _identifying_params(self) -> Dict[str, Any]:
@@ -191,7 +191,7 @@ class ChatGradientAI(BaseChatModel):
     ) -> ChatResult:
         if not self.api_key:
             raise ValueError(
-                "GradientAI API key not provided. Set DIGITALOCEAN_INFERENCE_KEY env var or pass api_key param."
+                "Gradient API key not provided. Set DIGITALOCEAN_INFERENCE_KEY env var or pass api_key param."
             )
 
         inference_client = GradientAI(
@@ -262,7 +262,7 @@ class ChatGradientAI(BaseChatModel):
     ) -> Iterator[ChatGenerationChunk]:
         if not self.api_key:
             raise ValueError(
-                "DigitalOcean API key not provided. Set DIGITALOCEAN_INFERENCE_KEY env var or pass api_key param."
+                "Gradient API key not provided. Set DIGITALOCEAN_INFERENCE_KEY env var or pass api_key param."
             )
 
         inference_client = GradientAI(inference_key=self.api_key, api_key=self.api_key)

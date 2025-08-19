@@ -1,4 +1,4 @@
-# Constants for langchain_gradientai
+# Constants for langchain_gradient
 
 ALLOWED_MODEL_FIELDS = {
     "model_name",

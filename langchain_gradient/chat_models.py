@@ -98,7 +98,9 @@ class ChatGradient(BaseChatModel):
     _stream(messages, ...)
         Stream chat completions for the given messages.
     """
-    api_key: Optional[str] = Field(default=os.environ.get("DIGITALOCEAN_INFERENCE_KEY"))
+    api_key: Optional[str] = Field(
+        default=os.environ.get("DIGITALOCEAN_INFERENCE_KEY"), exclude=True
+    )
     """Gradient API key."""
     model_name: str = Field(default="llama3.3-70b-instruct", alias="model")
     """Model name to use."""
@@ -149,6 +151,14 @@ class ChatGradient(BaseChatModel):
         return values
 
     @property
+    def user_agent_package(self) -> str:
+        return f"LangChain"
+
+    @property
+    def user_agent_version(self) -> str:
+        return "0.1.21"
+    
+    @property
     def _llm_type(self) -> str:
         """Return type of chat model."""
         return "chat-gradient"
@@ -198,6 +208,8 @@ class ChatGradient(BaseChatModel):
             inference_key=self.api_key,
             api_key=self.api_key,
             max_retries=self.max_retries,
+            user_agent_package=self.user_agent_package,
+            user_agent_version=self.user_agent_version, 
         )
 
         def convert_message(msg: BaseMessage) -> Dict[str, Any]:
@@ -265,7 +277,12 @@ class ChatGradient(BaseChatModel):
                 "Gradient API key not provided. Set DIGITALOCEAN_INFERENCE_KEY env var or pass api_key param."
             )
 
-        inference_client = GradientAI(inference_key=self.api_key, api_key=self.api_key)
+        inference_client = GradientAI(
+            inference_key=self.api_key, 
+            api_key=self.api_key,
+            user_agent_package=self.user_agent_package,
+            user_agent_version=self.user_agent_version, 
+        )
 
         def convert_message(msg: BaseMessage) -> Dict[str, Any]:
             if hasattr(msg, "type"):
@@ -337,6 +354,8 @@ class ChatGradient(BaseChatModel):
 
     def __getstate__(self) -> dict:
         state = self.__dict__.copy()
+        # Exclude sensitive credentials from serialization
+        state.pop("api_key", None)
         return state
 
     def __setstate__(self, state: dict) -> None:

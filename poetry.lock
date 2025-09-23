@@ -417,6 +417,29 @@ typing-extensions = {version = ">=4.6.0", markers = "python_version < \"3.13\""}
 test = ["pytest (>=6)"]
 
 [[package]]
+name = "gradient"
+version = "3.0.0"
+description = "The official Python library for the Gradient API"
+optional = false
+python-versions = ">=3.8"
+groups = ["main"]
+files = [
+    {file = "gradient-3.0.0-py3-none-any.whl", hash = "sha256:f5b84e52d3e5f535b29869ba7f1ade18e953f2ea7ef6ca4ac3bd5eee64dc274f"},
+    {file = "gradient-3.0.0.tar.gz", hash = "sha256:e26b5b889e008229ccb94b8351f96e5e0dc36c2a91e0f4b354b60201321ca32e"},
+]
+
+[package.dependencies]
+anyio = ">=3.5.0,<5"
+distro = ">=1.7.0,<2"
+httpx = ">=0.23.0,<1"
+pydantic = ">=1.9.0,<3"
+sniffio = "*"
+typing-extensions = ">=4.10,<5"
+
+[package.extras]
+aiohttp = ["aiohttp", "httpx-aiohttp (>=0.1.8)"]
+
+[[package]]
 name = "h11"
 version = "0.16.0"
 description = "A pure-Python, bring-your-own-I/O implementation of HTTP/1.1"
@@ -2370,4 +2393,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.9,<4.0"
-content-hash = "c82c76f23bf3588ba6a46c8216dd5256b8f0f12340b7a34f48cbfb85a23a65ea"
+content-hash = "c53016c9b1df0b3874ea7f62ae3db9767acce4446e17704d13c42977a8e6a0c4"

@@ -3,7 +3,7 @@
 import os
 from typing import Any, Dict, Iterator, List, Optional, Union
 
-from do_gradientai import GradientAI
+from gradient import Gradient
 from langchain_core.callbacks import (
     CallbackManagerForLLMRun,
 )
@@ -99,9 +99,10 @@ class ChatGradient(BaseChatModel):
         Stream chat completions for the given messages.
     """
     api_key: Optional[str] = Field(
-        default=os.environ.get("DIGITALOCEAN_INFERENCE_KEY"), exclude=True
+        default=os.environ.get("DIGITALOCEAN_INFERENCE_KEY"),
+        exclude=True,
     )
-    """Gradient API key."""
+    """Gradient model access key sourced from DIGITALOCEAN_INFERENCE_KEY."""
     model_name: str = Field(default="llama3.3-70b-instruct", alias="model")
     """Model name to use."""
     frequency_penalty: Optional[float] = None
@@ -156,7 +157,7 @@ class ChatGradient(BaseChatModel):
 
     @property
     def user_agent_version(self) -> str:
-        return "0.1.21"
+        return "0.1.22"
     
     @property
     def _llm_type(self) -> str:
@@ -201,15 +202,15 @@ class ChatGradient(BaseChatModel):
     ) -> ChatResult:
         if not self.api_key:
             raise ValueError(
-                "Gradient API key not provided. Set DIGITALOCEAN_INFERENCE_KEY env var or pass api_key param."
+                "Gradient model access key not provided. Set DIGITALOCEAN_INFERENCE_KEY env var or pass api_key param."
             )
 
-        inference_client = GradientAI(
-            inference_key=self.api_key,
-            api_key=self.api_key,
+        inference_client = Gradient(
+            model_access_key=self.api_key,
+            base_url="https://inference.do-ai.run/v1",
             max_retries=self.max_retries,
             user_agent_package=self.user_agent_package,
-            user_agent_version=self.user_agent_version, 
+            user_agent_version=self.user_agent_version,
         )
 
         def convert_message(msg: BaseMessage) -> Dict[str, Any]:
@@ -274,12 +275,12 @@ class ChatGradient(BaseChatModel):
     ) -> Iterator[ChatGenerationChunk]:
         if not self.api_key:
             raise ValueError(
-                "Gradient API key not provided. Set DIGITALOCEAN_INFERENCE_KEY env var or pass api_key param."
+                "Gradient model access key not provided. Set DIGITALOCEAN_INFERENCE_KEY env var or pass api_key param."
             )
 
-        inference_client = GradientAI(
-            inference_key=self.api_key, 
-            api_key=self.api_key,
+        inference_client = Gradient(
+            model_access_key=self.api_key,
+            base_url="https://inference.do-ai.run/v1",
             user_agent_package=self.user_agent_package,
             user_agent_version=self.user_agent_version, 
         )

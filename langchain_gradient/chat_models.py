@@ -1,7 +1,8 @@
 """LangchainDigitalocean chat models."""
 
+import json
 import os
-from typing import Any, Dict, Iterator, List, Optional, Union
+from typing import Any, Dict, Iterator, List, Optional, Type, Union
 
 from gradient import Gradient
 from langchain_core.callbacks import (
@@ -14,7 +15,8 @@ from langchain_core.messages import (
     BaseMessage,
 )
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
-from pydantic import Field, model_validator
+from langchain_core.runnables import Runnable
+from pydantic import BaseModel, Field, ValidationError, model_validator
 from typing_extensions import TypedDict
 
 from .constants import ALLOWED_MODEL_FIELDS
@@ -22,6 +24,152 @@ from .constants import ALLOWED_MODEL_FIELDS
 
 class StreamOptions(TypedDict, total=False):
     include_usage: bool
+
+
+class StructuredOutputError(Exception):
+    """Exception raised when structured output parsing fails."""
+    pass
+
+
+class StructuredOutputRunnable(Runnable):
+    """A runnable that wraps ChatGradient to provide structured output functionality."""
+    
+    def __init__(
+        self,
+        llm: "ChatGradient",
+        schema: Type[BaseModel],
+        method: str = "json_mode",
+        include_raw: bool = False,
+    ):
+        self.llm = llm
+        self.schema = schema
+        self.method = method
+        self.include_raw = include_raw
+    
+    def invoke(
+        self,
+        input: Union[str, List[BaseMessage], Dict[str, Any]],
+        config: Optional[Dict[str, Any]] = None,
+        **kwargs: Any,
+    ) -> Union[BaseModel, Dict[str, Any]]:
+        """Invoke the LLM and parse the output into the structured format."""
+        # Convert input to messages if it's a string
+        if isinstance(input, str):
+            from langchain_core.messages import HumanMessage
+            messages = [HumanMessage(content=input)]
+        elif isinstance(input, dict) and "messages" in input:
+            messages = input["messages"]
+        else:
+            messages = input
+        
+        # Add JSON format instruction to the last message
+        if messages and self.method == "json_mode":
+            last_message = messages[-1]
+            schema_description = self._get_schema_description()
+            enhanced_content = f"{last_message.content}\n\nPlease respond with a valid JSON object that matches this schema:\n{schema_description}"
+            
+            # Create a new message with enhanced content
+            from langchain_core.messages import HumanMessage
+            messages = messages[:-1] + [HumanMessage(content=enhanced_content)]
+        
+        # Get the raw response from the LLM
+        response = self.llm.invoke(messages, config, **kwargs)
+        
+        # Parse the response content
+        try:
+            parsed_output = self._parse_response(response.content)
+            
+            if self.include_raw:
+                return {
+                    "parsed": parsed_output,
+                    "raw": response,
+                    "parsing_error": None,
+                }
+            else:
+                return parsed_output
+                
+        except Exception as e:
+            if self.include_raw:
+                return {
+                    "parsed": None,
+                    "raw": response,
+                    "parsing_error": str(e),
+                }
+            else:
+                raise StructuredOutputError(f"Failed to parse structured output: {e}") from e
+    
+    def _get_schema_description(self) -> str:
+        """Get a description of the Pydantic schema."""
+        try:
+            # Get the JSON schema
+            schema_dict = self.schema.model_json_schema()
+            return json.dumps(schema_dict, indent=2)
+        except Exception:
+            # Fallback to a simple description
+            fields = []
+            for field_name, field_info in self.schema.model_fields.items():
+                field_type = field_info.annotation if hasattr(field_info, 'annotation') else 'Any'
+                fields.append(f'"{field_name}": {field_type}')
+            return "{\n  " + ",\n  ".join(fields) + "\n}"
+    
+    def _parse_response(self, content: str) -> BaseModel:
+        """Parse the response content into the structured format."""
+        # Try to extract JSON from the response
+        json_str = self._extract_json(content)
+        
+        try:
+            # Parse JSON
+            json_data = json.loads(json_str)
+            
+            # Validate with Pydantic model
+            return self.schema(**json_data)
+            
+        except json.JSONDecodeError as e:
+            raise StructuredOutputError(f"Invalid JSON in response: {e}")
+        except ValidationError as e:
+            raise StructuredOutputError(f"Pydantic validation failed: {e}")
+        except Exception as e:
+            raise StructuredOutputError(f"Unexpected error during parsing: {e}")
+    
+    def _extract_json(self, content: str) -> str:
+        """Extract JSON from the response content."""
+        content = content.strip()
+        
+        # Look for JSON wrapped in code blocks
+        if "```json" in content:
+            start = content.find("```json") + 7
+            end = content.find("```", start)
+            if end != -1:
+                return content[start:end].strip()
+        
+        # Look for JSON wrapped in code blocks without language specification
+        if "```" in content:
+            start = content.find("```") + 3
+            end = content.find("```", start)
+            if end != -1:
+                potential_json = content[start:end].strip()
+                # Check if it looks like JSON
+                if potential_json.startswith(("{", "[")):
+                    return potential_json
+        
+        # Look for JSON-like content (starts with { or [)
+        for i, char in enumerate(content):
+            if char in "{[":
+                # Find the matching closing bracket
+                bracket_count = 0
+                start_char = char
+                end_char = "}" if char == "{" else "]"
+                
+                for j in range(i, len(content)):
+                    if content[j] == start_char:
+                        bracket_count += 1
+                    elif content[j] == end_char:
+                        bracket_count -= 1
+                        if bracket_count == 0:
+                            return content[i:j+1]
+        
+        # If no JSON structure found, try to parse the entire content
+        return content
 
 
 class ChatGradient(BaseChatModel):
@@ -347,6 +495,72 @@ class ChatGradient(BaseChatModel):
             {"DIGITALOCEAN_INFERENCE_KEY": "test-env-key"},
             {"model": "bird-brain-001", "buffer_length": 50},
             {"api_key": "test-env-key", "model_name": "bird-brain-001"},
+        )
+
+    def with_structured_output(
+        self,
+        schema: Type[BaseModel],
+        *,
+        method: str = "json_mode",
+        include_raw: bool = False,
+        **kwargs: Any,
+    ) -> StructuredOutputRunnable:
+        """
+        Create a runnable that returns structured output using a Pydantic model.
+        
+        This method creates a wrapper around the ChatGradient model that automatically
+        parses the LLM's response into a structured Pydantic model.
+        
+        Parameters
+        ----------
+        schema : Type[BaseModel]
+            The Pydantic model class to use for structured output validation.
+        method : str, optional
+            The method to use for structured output. Currently supports "json_mode".
+            Defaults to "json_mode".
+        include_raw : bool, optional
+            Whether to include the raw LLM response along with the parsed output.
+            If True, returns a dict with "parsed", "raw", and "parsing_error" keys.
+            If False, returns only the parsed Pydantic model instance.
+            Defaults to False.
+        **kwargs : Any
+            Additional keyword arguments (reserved for future use).
+            
+        Returns
+        -------
+        StructuredOutputRunnable
+            A runnable that can be invoked to get structured output.
+            
+        Example
+        -------
+        ```python
+        from pydantic import BaseModel
+        from langchain_gradient import ChatGradient
+        
+        class Person(BaseModel):
+            name: str
+            age: int
+            email: str
+        
+        llm = ChatGradient(model="llama3.3-70b-instruct")
+        structured_llm = llm.with_structured_output(Person)
+        
+        response = structured_llm.invoke("Create a person named John, age 30, email john@example.com")
+        # Returns: Person(name="John", age=30, email="john@example.com")
+        ```
+        
+        Raises
+        ------
+        StructuredOutputError
+            If the LLM response cannot be parsed into the specified schema.
+        ValidationError
+            If the parsed data doesn't match the Pydantic model requirements.
+        """
+        return StructuredOutputRunnable(
+            llm=self,
+            schema=schema,
+            method=method,
+            include_raw=include_raw,
         )
 
     @classmethod

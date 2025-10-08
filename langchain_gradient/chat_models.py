@@ -4,6 +4,7 @@ import os
 from typing import Any, Dict, Iterator, List, Optional, Union
 
 from gradient import Gradient
+import gradient
 from langchain_core.callbacks import (
     CallbackManagerForLLMRun,
 )
@@ -69,25 +70,42 @@ class ChatGradient(BaseChatModel):
     user : str
         A unique identifier representing the user. Defaults to "langchain-gradient".
     timeout : Optional[float]
-        Timeout for requests.
+        Timeout for requests in seconds. Defaults to 60.0 seconds (Gradient SDK default).
     max_retries : int
-        Max number of retries. Defaults to 2.
+        Max number of retries. Defaults to 2 (Gradient SDK default).
 
     Example
     -------
-    ```python
+    ```
     from langchain_core.messages import HumanMessage
     from langchain_gradient import ChatGradient
+    import gradient
 
+    # Basic usage with default timeout and retry settings
     chat = ChatGradient(model_name="llama3.3-70b-instruct")
-    response = chat.invoke([
-        HumanMessage(content="What is the capital of France?")
-    ])
-    print(response)
+    
+    # Custom timeout and retry configuration
+    chat = ChatGradient(
+        model_name="llama3.3-70b-instruct",
+        timeout=30.0,
+        max_retries=3
+    )
+    
+    try:
+        response = chat.invoke([
+            HumanMessage(content="What is the capital of France?")
+        ])
+        print(response)
+    except gradient.APITimeoutError as e:
+        print(f"Request timed out: {e}")
+    except gradient.APIConnectionError as e:
+        print(f"Connection error: {e}")
+    except gradient.RateLimitError as e:
+        print(f"Rate limit exceeded: {e}")
     ```
 
     Output:
-    ```python
+    ```
     AIMessage(content="The capital of France is Paris.")
     ```
 
@@ -98,6 +116,7 @@ class ChatGradient(BaseChatModel):
     _stream(messages, ...)
         Stream chat completions for the given messages.
     """
+
     api_key: Optional[str] = Field(
         default=os.environ.get("DIGITALOCEAN_INFERENCE_KEY"),
         exclude=True,
@@ -137,10 +156,10 @@ class ChatGradient(BaseChatModel):
     """Total probability mass of tokens to consider at each step."""
     user: str = "langchain-gradient"
     """A unique identifier representing the user."""
-    timeout: Optional[float] = None
-    """Timeout for requests."""
-    max_retries: int = 2
-    """Max number of retries."""
+    timeout: Optional[float] = Field(default=60.0)
+    """Timeout for requests in seconds. Defaults to 60.0 seconds."""
+    max_retries: int = Field(default=2)
+    """Max number of retries. Defaults to 2."""
 
     @model_validator(mode="before")
     @classmethod
@@ -158,7 +177,7 @@ class ChatGradient(BaseChatModel):
     @property
     def user_agent_version(self) -> str:
         return "0.1.22"
-    
+
     @property
     def _llm_type(self) -> str:
         """Return type of chat model."""
@@ -177,6 +196,8 @@ class ChatGradient(BaseChatModel):
             # can provide per token pricing for their model and monitor
             # costs for the given LLM.)
             "model_name": self.model_name,
+            "timeout": self.timeout,
+            "max_retries": self.max_retries,
         }
 
     def _update_parameters_with_model_fields(self, parameters: dict) -> None:
@@ -193,6 +214,22 @@ class ChatGradient(BaseChatModel):
             if key not in parameters and value is not None:
                 parameters[key] = value
 
+    def _create_client(self) -> Gradient:
+        """Create a Gradient client with configured timeout and retry settings."""
+        if not self.api_key:
+            raise ValueError(
+                "Gradient model access key not provided. Set DIGITALOCEAN_INFERENCE_KEY env var or pass api_key param."
+            )
+
+        return Gradient(
+            model_access_key=self.api_key,
+            base_url="https://inference.do-ai.run/v1",
+            timeout=self.timeout,
+            max_retries=self.max_retries,
+            user_agent_package=self.user_agent_package,
+            user_agent_version=self.user_agent_version,
+        )
+
     def _generate(
         self,
         messages: List[BaseMessage],
@@ -200,71 +237,86 @@ class ChatGradient(BaseChatModel):
         run_manager: Optional[CallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> ChatResult:
-        if not self.api_key:
-            raise ValueError(
-                "Gradient model access key not provided. Set DIGITALOCEAN_INFERENCE_KEY env var or pass api_key param."
-            )
+        """Generate chat completion with automatic retry on failures."""
+        try:
+            inference_client = self._create_client()
 
-        inference_client = Gradient(
-            model_access_key=self.api_key,
-            base_url="https://inference.do-ai.run/v1",
-            max_retries=self.max_retries,
-            user_agent_package=self.user_agent_package,
-            user_agent_version=self.user_agent_version,
-        )
+            def convert_message(msg: BaseMessage) -> Dict[str, Any]:
+                if hasattr(msg, "type"):
+                    role = {"human": "user", "ai": "assistant", "system": "system"}.get(
+                        msg.type, msg.type
+                    )
+                else:
+                    role = getattr(msg, "role", "user")
+                return {"role": role, "content": msg.content}
 
-        def convert_message(msg: BaseMessage) -> Dict[str, Any]:
-            if hasattr(msg, "type"):
-                role = {"human": "user", "ai": "assistant", "system": "system"}.get(
-                    msg.type, msg.type
-                )
-            else:
-                role = getattr(msg, "role", "user")
-            return {"role": role, "content": msg.content}
-
-        parameters: Dict[str, Any] = {
-            "messages": [convert_message(m) for m in messages],
-            "model": self.model_name,
-        }
-
-        self._update_parameters_with_model_fields(parameters)
-
-        if "stop_sequences" in parameters:
-            parameters["stop"] = parameters.pop("stop_sequences")
-
-        # Only pass expected keyword arguments to create()
-        completion = inference_client.chat.completions.create(**parameters)
-        choice = completion.choices[0]
-        content = (
-            choice.message.content
-            if hasattr(choice.message, "content")
-            else choice.message
-        )
-        usage = getattr(completion, "usage", {})
-        response_metadata = {
-            "finish_reason": getattr(choice, "finish_reason", None),
-            "token_usage": {
-                "completion_tokens": getattr(usage, "completion_tokens", None),
-                "prompt_tokens": getattr(usage, "prompt_tokens", None),
-                "total_tokens": getattr(usage, "total_tokens", None),
-            },
-            "model_name": getattr(completion, "model", None),
-            "id": getattr(completion, "id", None),
-        }
-        message_kwargs = {
-            "content": content,
-            "additional_kwargs": {"refusal": getattr(choice.message, "refusal", None)},
-            "response_metadata": response_metadata,
-        }
-        if self.stream_options and self.stream_options.get("include_usage"):
-            message_kwargs["usage_metadata"] = {
-                "input_tokens": getattr(usage, "prompt_tokens", None),
-                "output_tokens": getattr(usage, "completion_tokens", None),
-                "total_tokens": getattr(usage, "total_tokens", None),
+            parameters: Dict[str, Any] = {
+                "messages": [convert_message(m) for m in messages],
+                "model": self.model_name,
             }
-        message = AIMessage(**message_kwargs)
-        generation = ChatGeneration(message=message)
-        return ChatResult(generations=[generation])
+
+            self._update_parameters_with_model_fields(parameters)
+
+            if "stop_sequences" in parameters:
+                parameters["stop"] = parameters.pop("stop_sequences")
+
+            # The Gradient SDK handles retries automatically
+            completion = inference_client.chat.completions.create(**parameters)
+            
+            choice = completion.choices[0]
+            content = (
+                choice.message.content
+                if hasattr(choice.message, "content")
+                else choice.message
+            )
+            usage = getattr(completion, "usage", {})
+            response_metadata = {
+                "finish_reason": getattr(choice, "finish_reason", None),
+                "token_usage": {
+                    "completion_tokens": getattr(usage, "completion_tokens", None),
+                    "prompt_tokens": getattr(usage, "prompt_tokens", None),
+                    "total_tokens": getattr(usage, "total_tokens", None),
+                },
+                "model_name": getattr(completion, "model", None),
+                "id": getattr(completion, "id", None),
+            }
+            message_kwargs = {
+                "content": content,
+                "additional_kwargs": {"refusal": getattr(choice.message, "refusal", None)},
+                "response_metadata": response_metadata,
+            }
+            if self.stream_options and self.stream_options.get("include_usage"):
+                message_kwargs["usage_metadata"] = {
+                    "input_tokens": getattr(usage, "prompt_tokens", None),
+                    "output_tokens": getattr(usage, "completion_tokens", None),
+                    "total_tokens": getattr(usage, "total_tokens", None),
+                }
+            message = AIMessage(**message_kwargs)
+            generation = ChatGeneration(message=message)
+            return ChatResult(generations=[generation])
+
+        except gradient.APITimeoutError as e:
+            # Re-raise timeout errors with context
+            raise ValueError(
+                f"Request to {self.model_name} timed out after {self.timeout}s. "
+                f"Consider increasing the timeout parameter."
+            ) from e
+        except gradient.RateLimitError as e:
+            # Re-raise rate limit errors with context
+            raise ValueError(
+                f"Rate limit exceeded for {self.model_name}. "
+                f"Please wait before retrying."
+            ) from e
+        except gradient.APIConnectionError as e:
+            # Re-raise connection errors with context
+            raise ValueError(
+                f"Failed to connect to Gradient API: {str(e)}"
+            ) from e
+        except gradient.APIStatusError as e:
+            # Re-raise API errors with context
+            raise ValueError(
+                f"API request failed with status {e.status_code}: {e.response}"
+            ) from e
 
     def _stream(
         self,
@@ -273,37 +325,30 @@ class ChatGradient(BaseChatModel):
         run_manager: Optional[CallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> Iterator[ChatGenerationChunk]:
-        if not self.api_key:
-            raise ValueError(
-                "Gradient model access key not provided. Set DIGITALOCEAN_INFERENCE_KEY env var or pass api_key param."
-            )
-
-        inference_client = Gradient(
-            model_access_key=self.api_key,
-            base_url="https://inference.do-ai.run/v1",
-            user_agent_package=self.user_agent_package,
-            user_agent_version=self.user_agent_version, 
-        )
-
-        def convert_message(msg: BaseMessage) -> Dict[str, Any]:
-            if hasattr(msg, "type"):
-                role = {"human": "user", "ai": "assistant", "system": "system"}.get(
-                    msg.type, msg.type
-                )
-            else:
-                role = getattr(msg, "role", "user")
-            return {"role": role, "content": msg.content}
-
-        parameters: Dict[str, Any] = {
-            "messages": [convert_message(m) for m in messages],
-            "stream": True,  # Enable streaming
-            "model": self.model_name,
-        }
-        
-        self._update_parameters_with_model_fields(parameters)
-
+        """Stream chat completions with automatic retry on failures."""
         try:
+            inference_client = self._create_client()
+
+            def convert_message(msg: BaseMessage) -> Dict[str, Any]:
+                if hasattr(msg, "type"):
+                    role = {"human": "user", "ai": "assistant", "system": "system"}.get(
+                        msg.type, msg.type
+                    )
+                else:
+                    role = getattr(msg, "role", "user")
+                return {"role": role, "content": msg.content}
+
+            parameters: Dict[str, Any] = {
+                "messages": [convert_message(m) for m in messages],
+                "stream": True,  # Enable streaming
+                "model": self.model_name,
+            }
+
+            self._update_parameters_with_model_fields(parameters)
+
+            # The Gradient SDK handles retries automatically
             stream = inference_client.chat.completions.create(**parameters)
+            
             for completion in stream:
                 # Extract the streamed content
                 content = completion.choices[0].delta.content
@@ -330,11 +375,37 @@ class ChatGradient(BaseChatModel):
                             usage_metadata=usage_metadata,  # type: ignore
                         )
                     )
-        except Exception as e:
-            # Yield an error chunk if possible
+
+        except gradient.APITimeoutError as e:
             error_chunk = ChatGenerationChunk(
                 message=AIMessageChunk(
-                    content=f"[ERROR] {str(e)}", response_metadata={"error": str(e)}
+                    content=f"[TIMEOUT ERROR] Request timed out after {self.timeout}s",
+                    response_metadata={"error": str(e), "error_type": "timeout"},
+                )
+            )
+            yield error_chunk
+        except gradient.RateLimitError as e:
+            error_chunk = ChatGenerationChunk(
+                message=AIMessageChunk(
+                    content=f"[RATE LIMIT ERROR] Rate limit exceeded",
+                    response_metadata={"error": str(e), "error_type": "rate_limit"},
+                )
+            )
+            yield error_chunk
+        except gradient.APIConnectionError as e:
+            error_chunk = ChatGenerationChunk(
+                message=AIMessageChunk(
+                    content=f"[CONNECTION ERROR] Failed to connect to API",
+                    response_metadata={"error": str(e), "error_type": "connection"},
+                )
+            )
+            yield error_chunk
+        except Exception as e:
+            # Catch-all for unexpected errors
+            error_chunk = ChatGenerationChunk(
+                message=AIMessageChunk(
+                    content=f"[ERROR] {str(e)}", 
+                    response_metadata={"error": str(e), "error_type": "unknown"}
                 )
             )
             yield error_chunk

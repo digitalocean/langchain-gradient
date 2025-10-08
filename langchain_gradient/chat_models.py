@@ -1,20 +1,19 @@
 """LangchainDigitalocean chat models."""
 
+import json
 import os
+import re
 from typing import Any, Dict, Iterator, List, Optional, Union
 
 from gradient import Gradient
-from langchain_core.callbacks import (
-    CallbackManagerForLLMRun,
-)
-from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import (
-    AIMessage,
-    AIMessageChunk,
-    BaseMessage,
-)
+from langchain_core.callbacks import CallbackManagerForLLMRun
+from langchain_core.language_models import BaseChatModel, LanguageModelInput
+from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
+from langchain_core.output_parsers import JsonOutputParser, PydanticOutputParser
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
-from pydantic import Field, model_validator
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import Runnable, RunnableLambda, RunnablePassthrough
+from pydantic import BaseModel, Field, model_validator
 from typing_extensions import TypedDict
 
 from .constants import ALLOWED_MODEL_FIELDS
@@ -75,7 +74,7 @@ class ChatGradient(BaseChatModel):
 
     Example
     -------
-    ```python
+    ```
     from langchain_core.messages import HumanMessage
     from langchain_gradient import ChatGradient
 
@@ -87,7 +86,7 @@ class ChatGradient(BaseChatModel):
     ```
 
     Output:
-    ```python
+    ```
     AIMessage(content="The capital of France is Paris.")
     ```
 
@@ -97,49 +96,70 @@ class ChatGradient(BaseChatModel):
         Generate a chat completion for the given messages.
     _stream(messages, ...)
         Stream chat completions for the given messages.
+    with_structured_output(schema, ...)
+        Return structured output matching a Pydantic model or JSON schema.
     """
+    
     api_key: Optional[str] = Field(
         default=os.environ.get("DIGITALOCEAN_INFERENCE_KEY"),
         exclude=True,
     )
     """Gradient model access key sourced from DIGITALOCEAN_INFERENCE_KEY."""
+    
     model_name: str = Field(default="llama3.3-70b-instruct", alias="model")
     """Model name to use."""
-    frequency_penalty: Optional[float] = None
+    
+    frequency_penalty: Optional[float] = Field(default=None)
     """Penalizes repeated tokens according to frequency."""
-    logit_bias: Optional[Dict[str, float]] = None
+    
+    logit_bias: Optional[Dict[str, float]] = Field(default=None)
     """Bias for logits."""
-    logprobs: Optional[bool] = None
+    
+    logprobs: Optional[bool] = Field(default=None)
     """Whether to return logprobs."""
-    max_completion_tokens: Optional[int] = None
+    
+    max_completion_tokens: Optional[int] = Field(default=None)
     """Maximum number of tokens to generate."""
+    
     max_tokens: Optional[int] = Field(default=None)
     """Maximum number of tokens to generate."""
-    metadata: Optional[Dict[str, str]] = None
+    
+    metadata: Optional[Dict[str, str]] = Field(default=None)
     """Metadata to include in the request."""
-    n: Optional[int] = None
+    
+    n: Optional[int] = Field(default=None)
     """Number of chat completions to generate for each prompt."""
-    presence_penalty: Optional[float] = None
+    
+    presence_penalty: Optional[float] = Field(default=None)
     """Penalizes repeated tokens."""
+    
     stop: Union[Optional[str], List[str], None] = Field(
         default=None, alias="stop_sequences"
     )
     """Default stop sequences."""
+    
     streaming: Optional[bool] = Field(default=False, alias="stream")
     """Whether to stream the results or not."""
-    stream_options: Optional[StreamOptions] = None
+    
+    stream_options: Optional[StreamOptions] = Field(default=None)
     """Stream options."""
-    temperature: Optional[float] = None
+    
+    temperature: Optional[float] = Field(default=None)
     """What sampling temperature to use."""
-    top_logprobs: Optional[int] = None
+    
+    top_logprobs: Optional[int] = Field(default=None)
     """The number of top logprobs to return."""
-    top_p: Optional[float] = None
+    
+    top_p: Optional[float] = Field(default=None)
     """Total probability mass of tokens to consider at each step."""
-    user: str = "langchain-gradient"
+    
+    user: str = Field(default="langchain-gradient")
     """A unique identifier representing the user."""
-    timeout: Optional[float] = None
+    
+    timeout: Optional[float] = Field(default=None)
     """Timeout for requests."""
-    max_retries: int = 2
+    
+    max_retries: int = Field(default=2)
     """Max number of retries."""
 
     @model_validator(mode="before")
@@ -158,7 +178,7 @@ class ChatGradient(BaseChatModel):
     @property
     def user_agent_version(self) -> str:
         return "0.1.22"
-    
+
     @property
     def _llm_type(self) -> str:
         """Return type of chat model."""
@@ -282,7 +302,7 @@ class ChatGradient(BaseChatModel):
             model_access_key=self.api_key,
             base_url="https://inference.do-ai.run/v1",
             user_agent_package=self.user_agent_package,
-            user_agent_version=self.user_agent_version, 
+            user_agent_version=self.user_agent_version,
         )
 
         def convert_message(msg: BaseMessage) -> Dict[str, Any]:
@@ -299,7 +319,7 @@ class ChatGradient(BaseChatModel):
             "stream": True,  # Enable streaming
             "model": self.model_name,
         }
-        
+
         self._update_parameters_with_model_fields(parameters)
 
         try:
@@ -339,6 +359,118 @@ class ChatGradient(BaseChatModel):
             )
             yield error_chunk
 
+    def with_structured_output(
+        self,
+        schema: Union[Dict[str, Any], type],
+        *,
+        include_raw: bool = False,
+        **kwargs: Any,
+    ) -> Runnable[LanguageModelInput, Union[Dict, BaseModel]]:
+        """
+        Model wrapper that returns outputs formatted to match the given schema.
+
+        Args:
+            schema: The output schema. Can be:
+                - A Pydantic BaseModel class
+                - A TypedDict class
+                - A JSON Schema dict
+            include_raw: If False, only returns the parsed output.
+                If True, returns dict with 'raw', 'parsed', and 'parsing_error' keys.
+            **kwargs: Additional configuration options
+
+        Returns:
+            A Runnable that takes same inputs as ChatGradient but outputs
+            structured data matching the schema.
+
+        Example:
+            ```
+            from pydantic import BaseModel, Field
+
+            class Person(BaseModel):
+                name: str = Field(description="The person's name")
+                age: int = Field(description="The person's age")
+                email: str = Field(description="The person's email")
+
+            llm = ChatGradient(model="llama3.3-70b-instruct")
+            structured_llm = llm.with_structured_output(Person)
+            
+            response = structured_llm.invoke(
+                "Create a person named John, age 30, email john@example.com"
+            )
+            # Returns: Person(name="John", age=30, email="john@example.com")
+            ```
+        """
+        # Determine if schema is a Pydantic model
+        is_pydantic = isinstance(schema, type) and issubclass(schema, BaseModel)
+
+        if is_pydantic:
+            # Use PydanticOutputParser for Pydantic models
+            parser = PydanticOutputParser(pydantic_object=schema)
+            format_instructions = parser.get_format_instructions()
+
+            # Create prompt that includes format instructions
+            prompt = ChatPromptTemplate.from_messages([
+                ("system",
+                 "You are a helpful assistant that outputs valid JSON matching the schema below.\n"
+                 "{format_instructions}\n"
+                 "Always wrap your JSON output in `````` tags."),
+                ("human", "{input}"),
+            ]).partial(format_instructions=format_instructions)
+
+            if include_raw:
+                # Return raw message, parsed output, and any parsing errors
+                chain = (
+                    {"input": RunnablePassthrough()}
+                    | prompt
+                    | self
+                    | RunnableLambda(lambda x: _parse_with_error_handling(x, parser, schema))
+                )
+            else:
+                # Return only parsed output
+                chain = (
+                    {"input": RunnablePassthrough()}
+                    | prompt
+                    | self
+                    | RunnableLambda(lambda x: _extract_and_parse_json(x, parser))
+                )
+        else:
+            # Handle TypedDict or JSON Schema
+            if isinstance(schema, dict):
+                # JSON Schema dict
+                json_schema = schema
+            else:
+                # TypedDict - convert to JSON schema
+                from langchain_core.utils.json_schema import dereference_refs
+                json_schema = dereference_refs(schema)
+
+            parser = JsonOutputParser()
+
+            # Create prompt with JSON schema
+            prompt = ChatPromptTemplate.from_messages([
+                ("system",
+                 "You are a helpful assistant that outputs valid JSON matching this schema:\n"
+                 "``````\n"
+                 "Always wrap your JSON output in `````` tags."),
+                ("human", "{input}"),
+            ]).partial(schema=json.dumps(json_schema, indent=2))
+
+            if include_raw:
+                chain = (
+                    {"input": RunnablePassthrough()}
+                    | prompt
+                    | self
+                    | RunnableLambda(lambda x: _parse_with_error_handling(x, parser, None))
+                )
+            else:
+                chain = (
+                    {"input": RunnablePassthrough()}
+                    | prompt
+                    | self
+                    | RunnableLambda(lambda x: _extract_and_parse_json(x, parser))
+                )
+
+        return chain
+
     @property
     def init_from_env_params(self) -> tuple[dict, dict, dict]:
         # env_vars, model_params, expected_attrs
@@ -361,3 +493,56 @@ class ChatGradient(BaseChatModel):
 
     def __setstate__(self, state: dict) -> None:
         self.__dict__.update(state)
+
+
+# Helper functions for structured output parsing
+def _extract_and_parse_json(
+    message: BaseMessage,
+    parser: Any,
+) -> Union[Dict, BaseModel]:
+    """Extract JSON from message and parse it."""
+    content = message.content if hasattr(message, 'content') else str(message)
+
+    # Try to extract JSON from code blocks (``````)
+    pattern = r"``````"
+    matches = re.findall(pattern, content, re.DOTALL)
+
+    if matches:
+        json_str = matches[0].strip()
+    else:
+        # Try to find JSON without code blocks
+        json_str = content.strip()
+
+    try:
+        parsed_json = json.loads(json_str)
+        return parser.parse(json.dumps(parsed_json))
+    except json.JSONDecodeError as e:
+        raise ValueError(
+            f"Failed to parse JSON from model output: {e}\n"
+            f"Content: {content}"
+        )
+    except Exception as e:
+        raise ValueError(
+            f"Failed to validate output against schema: {e}\n"
+            f"Parsed JSON: {json_str}"
+        )
+
+
+def _parse_with_error_handling(
+    message: BaseMessage,
+    parser: Any,
+    schema: Optional[type],
+) -> Dict[str, Any]:
+    """Parse with error handling for include_raw=True."""
+    result = {
+        "raw": message,
+        "parsed": None,
+        "parsing_error": None,
+    }
+
+    try:
+        result["parsed"] = _extract_and_parse_json(message, parser)
+    except Exception as e:
+        result["parsing_error"] = e
+
+    return result

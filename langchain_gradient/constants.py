@@ -17,5 +17,7 @@ ALLOWED_MODEL_FIELDS = {
     "user",
     "timeout",
     "stream_options",
+    "enable_rate_limiting",  # NEW
+    "max_requests_per_minute",  # NEW
     # Add new fields here as needed
 }

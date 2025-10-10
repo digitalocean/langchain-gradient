@@ -1,8 +1,10 @@
 import os
+
 import pytest
-from langchain_core.messages import HumanMessage
-from langchain_gradient.chat_models import ChatGradient
 from dotenv import load_dotenv
+from langchain_core.messages import HumanMessage
+
+from langchain_gradient.chat_models import ChatGradient
 
 load_dotenv()
 
@@ -13,6 +15,7 @@ pytestmark = pytest.mark.skipif(
     reason="No Gradient API key set",
 )
 
+
 def test_openai_o3_mini_max_completion_tokens():
     llm = ChatGradient(model="openai-o3-mini", api_key=API_KEY, max_tokens=256)
     prompt = [HumanMessage(content="Say hello to the world!")]
@@ -20,16 +23,22 @@ def test_openai_o3_mini_max_completion_tokens():
     assert result.content
     assert isinstance(result.content, str)
 
+
 def test_openai_gpt_4o_max_tokens():
-    llm = ChatGradient(model="openai-gpt-4o", api_key=API_KEY, max_completion_tokens=256)
+    llm = ChatGradient(
+        model="openai-gpt-4o", api_key=API_KEY, max_completion_tokens=256
+    )
     prompt = [HumanMessage(content="Say hello to the world!")]
     result = llm.invoke(prompt)
     assert result.content
     assert isinstance(result.content, str)
 
+
 def test_openai_gpt_4o_mini_max_tokens():
-    llm = ChatGradient(model="openai-gpt-4o-mini", api_key=API_KEY, max_completion_tokens=256)
+    llm = ChatGradient(
+        model="openai-gpt-4o-mini", api_key=API_KEY, max_completion_tokens=256
+    )
     prompt = [HumanMessage(content="Say hello to the world!")]
     result = llm.invoke(prompt)
     assert result.content
-    assert isinstance(result.content, str) 
+    assert isinstance(result.content, str)

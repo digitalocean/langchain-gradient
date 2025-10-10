@@ -4,8 +4,7 @@ import os
 
 import pytest
 from dotenv import load_dotenv
-from langchain_core.messages import AIMessageChunk, HumanMessage
-from langchain_core.outputs import ChatGenerationChunk
+from langchain_core.messages import HumanMessage
 
 from langchain_gradient.chat_models import ChatGradient
 
@@ -167,4 +166,3 @@ def test_unicode_prompt() -> None:
     llm = ChatGradient(api_key=os.environ.get("DIGITALOCEAN_INFERENCE_KEY"))
     result = llm.invoke([HumanMessage(content="你好，世界! 🌍")])
     assert result.content is not None
-

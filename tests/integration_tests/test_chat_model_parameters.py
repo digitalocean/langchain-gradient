@@ -1,8 +1,10 @@
 import os
+
 import pytest
-from langchain_core.messages import HumanMessage
-from langchain_gradient.chat_models import ChatGradient
 from dotenv import load_dotenv
+from langchain_core.messages import HumanMessage
+
+from langchain_gradient.chat_models import ChatGradient
 
 load_dotenv()
 
@@ -18,8 +20,10 @@ pytestmark = pytest.mark.skipif(
 def _basic_llm(**kwargs):
     return ChatGradient(model=MODEL, api_key=API_KEY, **kwargs)
 
+
 def _basic_prompt():
     return [HumanMessage(content="Say hello!")]
+
 
 def test_temperature_param():
     llm_cold = _basic_llm(temperature=0)
@@ -33,6 +37,7 @@ def test_temperature_param():
     outputs = set(llm_hot.invoke(prompt).content for _ in range(3))
     assert len(outputs) > 1 or result_hot.content != result_cold.content
 
+
 def test_max_tokens_param():
     llm = _basic_llm(max_tokens=3)
     prompt = [HumanMessage(content="Repeat the word 'hello' 10 times.")]
@@ -40,6 +45,7 @@ def test_max_tokens_param():
     assert result.content
     # Should be very short due to max_tokens
     assert len(result.content.split()) <= 5
+
 
 # def test_stop_param():
 #     llm = _basic_llm(stop=["cat"])
@@ -64,6 +70,7 @@ def test_max_tokens_param():
 #     # With high frequency penalty, expect less repetition
 #     assert result.content.lower().count("hi") <= 2
 
+
 def test_top_p_param():
     llm = _basic_llm(top_p=0.1)
     prompt = [HumanMessage(content="Tell me a joke.")]
@@ -71,6 +78,7 @@ def test_top_p_param():
     assert result.content
     # Not easy to assert, but should return a valid string
     assert isinstance(result.content, str)
+
 
 # TODO: Should be tested with once its fixed in Gradient SDK
 # def test_n_param():
@@ -80,6 +88,7 @@ def test_top_p_param():
 #     # Should return a list of generations or a message with n completions
 #     assert hasattr(result, "message") or hasattr(result, "generations")
 
+
 def test_timeout_param():
     llm = _basic_llm(timeout=0.1)
     prompt = _basic_prompt()
@@ -87,6 +96,7 @@ def test_timeout_param():
         llm.invoke(prompt)
     except Exception as e:
         assert "timeout" in str(e).lower() or isinstance(e, Exception)
+
 
 def test_stream_options_include_usage():
     llm = _basic_llm(stream_options={"include_usage": True})

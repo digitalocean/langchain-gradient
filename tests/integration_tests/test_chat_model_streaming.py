@@ -1,8 +1,10 @@
 import os
+
 import pytest
-from langchain_core.messages import HumanMessage
-from langchain_gradient.chat_models import ChatGradient
 from dotenv import load_dotenv
+from langchain_core.messages import HumanMessage
+
+from langchain_gradient.chat_models import ChatGradient
 
 load_dotenv()
 
@@ -14,6 +16,7 @@ pytestmark = pytest.mark.skipif(
     reason="No Gradient API key set",
 )
 
+
 def test_stream_first_and_last_chunk():
     llm = ChatGradient(model=MODEL, api_key=API_KEY, streaming=True)
     prompt = [HumanMessage(content="Display three cities in the world")]
@@ -24,4 +27,3 @@ def test_stream_first_and_last_chunk():
         assert chunk.content is not None
         found = True
     assert found, "No streamed completions were received."
-    

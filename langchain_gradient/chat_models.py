@@ -1,20 +1,24 @@
 """LangchainDigitalocean chat models."""
 
 import os
-from typing import Any, Dict, Iterator, List, Optional, Union
+from typing import Any, Callable, Dict, Iterator, List, Optional, Union
 
 from gradient import Gradient
 from langchain_core.callbacks import (
     CallbackManagerForLLMRun,
 )
+from langchain_core.runnables import RunnablePassthrough,Runnable
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import (
     AIMessage,
     AIMessageChunk,
     BaseMessage,
+    HumanMessage,
 )
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
-from pydantic import Field, model_validator
+from pydantic import Field, model_validator, BaseModel
 from typing_extensions import TypedDict
 
 from .constants import ALLOWED_MODEL_FIELDS
@@ -361,3 +365,130 @@ class ChatGradient(BaseChatModel):
 
     def __setstate__(self, state: dict) -> None:
         self.__dict__.update(state)
+
+    def with_structured_output(
+        self,
+        schema: Optional[Union[Dict[str, Any], type]] = None,
+        parsing_method: str = "json_parser",
+        **kwargs: Any
+    ) -> Runnable:
+        """
+        Returns a new Runnable that is configured to return structured output 
+        validated by the given Pydantic model.
+        
+        Parameters:
+            schema: The Pydantic model to validate the output against.
+            parsing_method: The method to use to parse the output. Currently supports "json_parser".
+            **kwargs: Additional keyword arguments to pass to the model.
+            
+        Returns:
+            A new Runnable chain that takes HumanMessage input and returns a Pydantic model instance.
+            
+        Raises:
+            ValueError: If the schema is not a valid Pydantic model or parsing method is invalid.
+        """
+                
+        if schema is not None and isinstance(schema, type):
+            # Mode 1: With Pydantic schema
+            schema_type = schema if issubclass(schema, BaseModel) else None
+            if schema_type is None:
+                raise ValueError(f"Schema must be a Pydantic BaseModel, got {schema}")
+            parser, format_instructions = self._get_parser_factory(parsing_method)(schema_type)
+            
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", "You are a helpful assistant. Answer the user's query. "
+                "IMPORTANT: Your response must be a valid JSON object that strictly conforms to the format instructions below. "
+                "Do not include any text before or after the JSON object.\n"
+                "Format Instructions:\n"
+                "{format_instructions}"),
+                ("human", "{input}")
+            ])
+        else:
+            # Mode 2: Without schema - just return JSON
+            parser = None
+            format_instructions = "Return a valid JSON object with the requested information."
+            
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", "You are a helpful assistant. Answer the user's query. "
+                "IMPORTANT: Your response must be a valid JSON object. "
+                "Do not include any text before or after the JSON object."),
+                ("human", "{input}")
+            ])
+
+        if parser:
+            def parse_with_validation(response: AIMessage) -> Any:
+                try:
+                    # Ensure response.content is a string
+                    content = response.content if isinstance(response.content, str) else str(response.content)
+                    return parser.parse(content)
+                except Exception as e:
+                    schema_name = schema_type.__name__ if schema_type else "Unknown"
+                    raise ValueError(
+                        f"Failed to parse response as {schema_name}: {str(e)}. "
+                        f"Response content: {response.content[:200]}..."
+                    ) from e
+            
+            chain = (
+                self.process_human_message 
+                | RunnablePassthrough.assign(format_instructions=lambda x: format_instructions)
+                | prompt
+                | self
+                | parse_with_validation
+            )
+        else:
+            def parse_json_response(response: AIMessage) -> Any:
+                """Parse JSON response without Pydantic validation."""
+                import json
+                try:
+                    content = response.content if isinstance(response.content, str) else str(response.content)
+                    return json.loads(content)
+                except json.JSONDecodeError as e:
+                    raise ValueError(
+                        f"Failed to parse JSON response: {str(e)}. "
+                        f"Response content: {response.content[:200]}..."
+                    ) from e
+            
+            chain = (
+                self.process_human_message 
+                | RunnablePassthrough.assign(format_instructions=lambda x: format_instructions)
+                | prompt
+                | self
+                | parse_json_response
+            )
+
+        return chain
+
+    def _get_parser_factory(self, parsing_method: str) -> Callable[[Optional[type[BaseModel]]], tuple[Optional[PydanticOutputParser], str]]:
+        parsers = {
+            "json_parser": self.create_json_parser,
+        }
+        if parsing_method not in parsers:
+            raise ValueError(f"Invalid parsing method: {parsing_method}")
+        return parsers[parsing_method]
+    
+    def create_json_parser(self, schema: Optional[type[BaseModel]]) -> tuple[Optional[PydanticOutputParser], str]:
+        if schema is None:
+            return None, "Return a valid JSON object"
+        
+        if hasattr(schema, "model_json_schema"):
+            parser = PydanticOutputParser(pydantic_object=schema)
+            format_instructions = parser.get_format_instructions()
+            return parser, format_instructions
+        else:
+            return None, "Return a valid JSON object"
+
+    def process_human_message(self, input_data: Union[HumanMessage, List[HumanMessage]]) -> Dict[str, Any]:
+        """Process HumanMessage input to extract content."""
+        if isinstance(input_data, list) and len(input_data) > 0:
+            first_message = input_data[0]
+            if hasattr(first_message, 'content'):
+                return {"input": first_message.content}
+            else:
+                raise ValueError("First message in list must have 'content' attribute")
+        elif hasattr(input_data, 'content'):
+            return {"input": input_data.content}
+        else:
+            raise ValueError(
+                "Input must be a HumanMessage or list of messages. "
+                f"Got: {type(input_data)}"
+            )

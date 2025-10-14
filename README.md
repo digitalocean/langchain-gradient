@@ -61,3 +61,23 @@ for chunk in llm.stream("Tell me what happened to the Dinosaurs?"):
 ```
 
 More features coming soon.
+
+## Structured Output (Pydantic)
+
+You can ask the model to return JSON that matches a Pydantic model and
+have the client validate and return typed objects using `with_structured_output()`:
+
+```python
+from pydantic import BaseModel
+from langchain_gradient import ChatGradient
+
+class Person(BaseModel):
+    name: str
+    age: int
+    email: str
+
+llm = ChatGradient(model="llama3.3-70b-instruct", api_key="your_key")
+structured = llm.with_structured_output(Person)
+person = structured.invoke(["Create a person named John, age 30, email john@example.com"])
+print(person)
+```

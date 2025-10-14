@@ -1,7 +1,10 @@
 """LangchainDigitalocean chat models."""
 
 import os
-from typing import Any, Dict, Iterator, List, Optional, Union
+from typing import Any, Dict, Iterator, List, Optional, Union, Type
+import json
+
+from pydantic import BaseModel, ValidationError
 
 from gradient import Gradient
 from langchain_core.callbacks import (
@@ -361,3 +364,91 @@ class ChatGradient(BaseChatModel):
 
     def __setstate__(self, state: dict) -> None:
         self.__dict__.update(state)
+
+    def with_structured_output(
+        self,
+        response_model: Type[BaseModel],
+        *,
+        multiple: bool = False,
+        response_format: Optional[Any] = None,
+    ) -> "StructuredChatGradient":
+        """Return a lightweight wrapper around this ChatGradient that will parse
+        and validate the model output into the provided Pydantic ``response_model``.
+
+        Parameters
+        ----------
+        response_model:
+            A Pydantic model class (subclass of BaseModel) to validate the AI output.
+        multiple:
+            If True, expect the model to return a JSON array of objects matching
+            ``response_model`` and return a list of validated models.
+        response_format:
+            Arbitrary metadata to be forwarded to the underlying LLM invocation
+            (for example instructions about the desired response format). This
+            wrapper will pass it through when invoking the underlying model if
+            not overridden at call time.
+        """
+
+        return StructuredChatGradient(
+            llm=self,
+            response_model=response_model,
+            multiple=multiple,
+            response_format=response_format,
+        )
+
+
+class StructuredChatGradient:
+    """A small wrapper that invokes a ChatGradient and parses/validates
+    its output into Pydantic models.
+
+    This keeps the core ChatGradient implementation unchanged while providing
+    a convenient typed interface for consumers who want structured outputs.
+    """
+
+    def __init__(
+        self,
+        llm: ChatGradient,
+        response_model: Type[BaseModel],
+        multiple: bool = False,
+        response_format: Optional[Any] = None,
+    ) -> None:
+        self.llm = llm
+        self.response_model = response_model
+        self.multiple = multiple
+        self.response_format = response_format
+
+    def invoke(self, messages: List[BaseMessage], **kwargs: Any) -> Any:
+        # Allow callers to override response_format via kwargs
+        rf = kwargs.pop("response_format", self.response_format)
+        # If response_format exists, append it to the messages as a system hint
+        if rf:
+            # inject formatting instruction as a system message at the start
+            messages = [BaseMessage(content=str(rf))] + messages  # type: ignore
+
+        result = self.llm.invoke(messages, **kwargs)
+
+        # result.content is expected to be a string containing JSON
+        raw = getattr(result, "content", result)
+        if not isinstance(raw, str):
+            raise ValueError("LLM returned non-string content for structured output")
+
+        try:
+            parsed = json.loads(raw)
+        except Exception as e:  # noqa: BLE001 - we want to catch JSON errors
+            raise ValueError(f"Failed to parse JSON from model output: {e}\nRaw output: {raw}")
+
+        try:
+            if self.multiple:
+                if not isinstance(parsed, list):
+                    raise ValueError("Expected JSON array for multiple=True structured output")
+                return [self.response_model.parse_obj(item) for item in parsed]
+            else:
+                # For single objects, accept dict or single-element list
+                if isinstance(parsed, list) and len(parsed) == 1:
+                    parsed = parsed[0]
+                if not isinstance(parsed, dict):
+                    raise ValueError("Expected JSON object for structured output")
+                return self.response_model.parse_obj(parsed)
+        except ValidationError as ve:
+            # Provide clear messages about which fields failed validation
+            raise ValueError(f"Validation error when parsing model output: {ve}")

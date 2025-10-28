@@ -1,4 +1,4 @@
-"""Unit tests for RateLimiter class."""
+"""Integration tests for RateLimiter class."""
 
 import time
 from threading import Thread

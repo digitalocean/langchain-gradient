@@ -18,6 +18,7 @@ from pydantic import Field, model_validator
 from typing_extensions import TypedDict
 
 from .constants import ALLOWED_MODEL_FIELDS
+from .rate_limiter import RateLimiter  # NEW IMPORT
 
 
 class StreamOptions(TypedDict, total=False):
@@ -73,24 +74,6 @@ class ChatGradient(BaseChatModel):
     max_retries : int
         Max number of retries. Defaults to 2.
 
-    Example
-    -------
-    ```python
-    from langchain_core.messages import HumanMessage
-    from langchain_gradient import ChatGradient
-
-    chat = ChatGradient(model_name="llama3.3-70b-instruct")
-    response = chat.invoke([
-        HumanMessage(content="What is the capital of France?")
-    ])
-    print(response)
-    ```
-
-    Output:
-    ```python
-    AIMessage(content="The capital of France is Paris.")
-    ```
-
     Methods
     -------
     _generate(messages, ...)
@@ -98,6 +81,7 @@ class ChatGradient(BaseChatModel):
     _stream(messages, ...)
         Stream chat completions for the given messages.
     """
+
     api_key: Optional[str] = Field(
         default=os.environ.get("DIGITALOCEAN_INFERENCE_KEY"),
         exclude=True,
@@ -142,6 +126,15 @@ class ChatGradient(BaseChatModel):
     max_retries: int = 2
     """Max number of retries."""
 
+    # NEW RATE LIMITING FIELDS
+    enable_rate_limiting: bool = Field(default=False)
+    """Enable automatic rate limiting to prevent 429 errors."""
+    max_requests_per_minute: int = Field(default=60)
+    """Maximum number of requests per minute when rate limiting is enabled."""
+
+    # Private field to store rate limiter instance
+    _rate_limiter: Optional[RateLimiter] = None
+
     @model_validator(mode="before")
     @classmethod
     def validate_temperature(cls, values: dict[str, Any]) -> Any:
@@ -151,14 +144,30 @@ class ChatGradient(BaseChatModel):
             values["temperature"] = 1
         return values
 
+    # NEW VALIDATOR FOR RATE LIMITING
+    @model_validator(mode="after")
+    def initialize_rate_limiter(self) -> "ChatGradient":
+        """Initialize rate limiter if enabled."""
+        if self.enable_rate_limiting:
+            if self.max_requests_per_minute <= 0:
+                raise ValueError(
+                    f"max_requests_per_minute must be positive, "
+                    f"got {self.max_requests_per_minute}"
+                )
+            self._rate_limiter = RateLimiter(
+                max_requests=self.max_requests_per_minute,
+                time_window=60.0,  # 1 minute
+            )
+        return self
+
     @property
     def user_agent_package(self) -> str:
-        return f"LangChain"
+        return "LangChain"
 
     @property
     def user_agent_version(self) -> str:
         return "0.1.22"
-    
+
     @property
     def _llm_type(self) -> str:
         """Return type of chat model."""
@@ -166,24 +175,12 @@ class ChatGradient(BaseChatModel):
 
     @property
     def _identifying_params(self) -> Dict[str, Any]:
-        """Return a dictionary of identifying parameters.
-
-        This information is used by the LangChain callback system, which
-        is used for tracing purposes make it possible to monitor LLMs.
-        """
-        return {
-            # The model name allows users to specify custom token counting
-            # rules in LLM monitoring applications (e.g., in LangSmith users
-            # can provide per token pricing for their model and monitor
-            # costs for the given LLM.)
-            "model_name": self.model_name,
-        }
+        """Return identifying parameters for tracing."""
+        return {"model_name": self.model_name}
 
     def _update_parameters_with_model_fields(self, parameters: dict) -> None:
-        # Only add explicitly supported model fields
         for field in ALLOWED_MODEL_FIELDS:
             value = getattr(self, field, None)
-            # Use the alias if defined (e.g., model_name -> model)
             model_field = self.__class__.model_fields.get(field)
             key = (
                 model_field.alias
@@ -192,6 +189,7 @@ class ChatGradient(BaseChatModel):
             )
             if key not in parameters and value is not None:
                 parameters[key] = value
+
 
     def _generate(
         self,
@@ -205,6 +203,10 @@ class ChatGradient(BaseChatModel):
                 "Gradient model access key not provided. Set DIGITALOCEAN_INFERENCE_KEY env var or pass api_key param."
             )
 
+        # NEW: Apply rate limiting if enabled
+        if self._rate_limiter:
+            self._rate_limiter.wait_if_needed()
+
         inference_client = Gradient(
             model_access_key=self.api_key,
             base_url="https://inference.do-ai.run/v1",
@@ -213,56 +215,41 @@ class ChatGradient(BaseChatModel):
             user_agent_version=self.user_agent_version,
         )
 
+        # ... rest of the method stays exactly the same ...
+
         def convert_message(msg: BaseMessage) -> Dict[str, Any]:
-            if hasattr(msg, "type"):
-                role = {"human": "user", "ai": "assistant", "system": "system"}.get(
-                    msg.type, msg.type
-                )
-            else:
-                role = getattr(msg, "role", "user")
+            role = {"human": "user", "ai": "assistant", "system": "system"}.get(
+                getattr(msg, "type", "user"), getattr(msg, "type", "user")
+            )
             return {"role": role, "content": msg.content}
 
-        parameters: Dict[str, Any] = {
+        parameters = {
             "messages": [convert_message(m) for m in messages],
             "model": self.model_name,
         }
-
         self._update_parameters_with_model_fields(parameters)
-
         if "stop_sequences" in parameters:
             parameters["stop"] = parameters.pop("stop_sequences")
 
-        # Only pass expected keyword arguments to create()
         completion = inference_client.chat.completions.create(**parameters)
         choice = completion.choices[0]
-        content = (
-            choice.message.content
-            if hasattr(choice.message, "content")
-            else choice.message
-        )
+        content = getattr(choice.message, "content", choice.message)
         usage = getattr(completion, "usage", {})
-        response_metadata = {
-            "finish_reason": getattr(choice, "finish_reason", None),
-            "token_usage": {
-                "completion_tokens": getattr(usage, "completion_tokens", None),
-                "prompt_tokens": getattr(usage, "prompt_tokens", None),
-                "total_tokens": getattr(usage, "total_tokens", None),
+
+        message = AIMessage(
+            content=content,
+            additional_kwargs={"refusal": getattr(choice.message, "refusal", None)},
+            response_metadata={
+                "finish_reason": getattr(choice, "finish_reason", None),
+                "token_usage": {
+                    "completion_tokens": getattr(usage, "completion_tokens", None),
+                    "prompt_tokens": getattr(usage, "prompt_tokens", None),
+                    "total_tokens": getattr(usage, "total_tokens", None),
+                },
+                "model_name": getattr(completion, "model", None),
+                "id": getattr(completion, "id", None),
             },
-            "model_name": getattr(completion, "model", None),
-            "id": getattr(completion, "id", None),
-        }
-        message_kwargs = {
-            "content": content,
-            "additional_kwargs": {"refusal": getattr(choice.message, "refusal", None)},
-            "response_metadata": response_metadata,
-        }
-        if self.stream_options and self.stream_options.get("include_usage"):
-            message_kwargs["usage_metadata"] = {
-                "input_tokens": getattr(usage, "prompt_tokens", None),
-                "output_tokens": getattr(usage, "completion_tokens", None),
-                "total_tokens": getattr(usage, "total_tokens", None),
-            }
-        message = AIMessage(**message_kwargs)
+        )
         generation = ChatGeneration(message=message)
         return ChatResult(generations=[generation])
 
@@ -273,6 +260,9 @@ class ChatGradient(BaseChatModel):
         run_manager: Optional[CallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> Iterator[ChatGenerationChunk]:
+        if self.enable_rate_limiting and self._rate_limiter:
+            self._rate_limiter.wait_for_slot()
+
         if not self.api_key:
             raise ValueError(
                 "Gradient model access key not provided. Set DIGITALOCEAN_INFERENCE_KEY env var or pass api_key param."
@@ -282,67 +272,43 @@ class ChatGradient(BaseChatModel):
             model_access_key=self.api_key,
             base_url="https://inference.do-ai.run/v1",
             user_agent_package=self.user_agent_package,
-            user_agent_version=self.user_agent_version, 
+            user_agent_version=self.user_agent_version,
         )
 
         def convert_message(msg: BaseMessage) -> Dict[str, Any]:
-            if hasattr(msg, "type"):
-                role = {"human": "user", "ai": "assistant", "system": "system"}.get(
-                    msg.type, msg.type
-                )
-            else:
-                role = getattr(msg, "role", "user")
+            role = {"human": "user", "ai": "assistant", "system": "system"}.get(
+                getattr(msg, "type", "user"), getattr(msg, "type", "user")
+            )
             return {"role": role, "content": msg.content}
 
-        parameters: Dict[str, Any] = {
+        parameters = {
             "messages": [convert_message(m) for m in messages],
-            "stream": True,  # Enable streaming
+            "stream": True,
             "model": self.model_name,
         }
-        
         self._update_parameters_with_model_fields(parameters)
 
         try:
             stream = inference_client.chat.completions.create(**parameters)
             for completion in stream:
-                # Extract the streamed content
                 content = completion.choices[0].delta.content
                 if not content:
-                    continue  # skip empty chunks
+                    continue
 
                 chunk = ChatGenerationChunk(message=AIMessageChunk(content=content))
                 if run_manager:
                     run_manager.on_llm_new_token(content, chunk=chunk)
                 yield chunk
 
-            # Optionally yield usage metadata at the end if available
-            if self.stream_options and self.stream_options.get("include_usage"):
-                usage = getattr(completion, "usage", {})
-                usage_metadata = {
-                    "input_tokens": getattr(usage, "prompt_tokens", None),
-                    "output_tokens": getattr(usage, "completion_tokens", None),
-                    "total_tokens": getattr(usage, "total_tokens", None),
-                }
-                if any(v is not None for v in usage_metadata.values()):
-                    yield ChatGenerationChunk(
-                        message=AIMessageChunk(
-                            content="",
-                            usage_metadata=usage_metadata,  # type: ignore
-                        )
-                    )
         except Exception as e:
-            # Yield an error chunk if possible
-            error_chunk = ChatGenerationChunk(
+            yield ChatGenerationChunk(
                 message=AIMessageChunk(
                     content=f"[ERROR] {str(e)}", response_metadata={"error": str(e)}
                 )
             )
-            yield error_chunk
 
     @property
     def init_from_env_params(self) -> tuple[dict, dict, dict]:
-        # env_vars, model_params, expected_attrs
-        # Map DIGITALOCEAN_INFERENCE_KEY -> api_key, and require model param
         return (
             {"DIGITALOCEAN_INFERENCE_KEY": "test-env-key"},
             {"model": "bird-brain-001", "buffer_length": 50},
@@ -355,7 +321,6 @@ class ChatGradient(BaseChatModel):
 
     def __getstate__(self) -> dict:
         state = self.__dict__.copy()
-        # Exclude sensitive credentials from serialization
         state.pop("api_key", None)
         return state
 

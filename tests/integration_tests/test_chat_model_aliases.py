@@ -1,8 +1,10 @@
 import os
+
 import pytest
-from langchain_core.messages import HumanMessage
-from langchain_gradient.chat_models import ChatGradient
 from dotenv import load_dotenv
+from langchain_core.messages import HumanMessage
+
+from langchain_gradient.chat_models import ChatGradient
 
 load_dotenv()
 
@@ -22,9 +24,10 @@ def test_model_alias():
     assert result.content
     assert isinstance(result.content, str)
 
+
 # def test_stop_sequences_alias():
 #     llm = ChatGradient(model=MODEL, api_key=API_KEY, stop_sequences=["cat", "cat,", "cat.", "Cat", "Cat,", "Cat."])
 #     prompt = [HumanMessage(content="Say: dog, cat, mouse.")]
 #     result = llm.invoke(prompt)
 #     assert result.content
-#     assert isinstance(result.content, str) 
+#     assert isinstance(result.content, str)

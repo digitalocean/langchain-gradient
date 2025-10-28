@@ -1,8 +1,10 @@
 import os
+
 import pytest
-from langchain_core.messages import HumanMessage
-from langchain_gradient.chat_models import ChatGradient
 from dotenv import load_dotenv
+from langchain_core.messages import HumanMessage
+
+from langchain_gradient.chat_models import ChatGradient
 
 load_dotenv()
 
@@ -13,7 +15,7 @@ MODELS_TO_TEST = [
     "openai-gpt-4o",
     "llama3-8b-instruct",
     "deepseek-r1-distill-llama-70b",
-    "llama3.3-70b-instruct"
+    "llama3.3-70b-instruct",
 ]
 
 # "llama3-70b-instruct",
@@ -21,6 +23,7 @@ MODELS_TO_TEST = [
 # "anthropic-claude-3.5-sonnet",
 # "anthropic-claude-3.5-haiku",
 # "anthropic-claude-3-opus",
+
 
 @pytest.mark.skipif(
     not os.environ.get("DIGITALOCEAN_INFERENCE_KEY"),
@@ -37,4 +40,4 @@ def test_chatgradient_all_models(model_name):
     result = llm.invoke(messages)
     assert result.content
     assert isinstance(result.content, str)
-    assert hasattr(result, "usage_metadata") or hasattr(result, "response_metadata") 
+    assert hasattr(result, "usage_metadata") or hasattr(result, "response_metadata")

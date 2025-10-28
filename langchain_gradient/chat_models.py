@@ -190,7 +190,6 @@ class ChatGradient(BaseChatModel):
             if key not in parameters and value is not None:
                 parameters[key] = value
 
-    ### **Step 3: Modify the `_generate` method**
 
     def _generate(
         self,

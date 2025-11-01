@@ -69,7 +69,6 @@ class StructuredOutputRunnable(Runnable):
             enhanced_content = f"{last_message.content}\n\nPlease respond with a valid JSON object that matches this schema:\n{schema_description}"
             
             # Create a new message with enhanced content
-            from langchain_core.messages import HumanMessage
             messages = messages[:-1] + [HumanMessage(content=enhanced_content)]
         
         # Get the raw response from the LLM

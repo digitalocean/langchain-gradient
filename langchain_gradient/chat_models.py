@@ -218,11 +218,9 @@ class ChatGradient(BaseChatModel):
         
         result: Dict[str, Any] = {"role": role, "content": msg.content}
         
-        # Handle ToolMessage - needs tool_call_id
         if isinstance(msg, ToolMessage):
             result["tool_call_id"] = msg.tool_call_id
         
-        # Handle AIMessage with tool_calls
         if isinstance(msg, AIMessage) and msg.tool_calls:
             result["tool_calls"] = [
                 {
@@ -255,7 +253,6 @@ class ChatGradient(BaseChatModel):
                     arguments = func.get("arguments")
                     tc_id = tc.get("id")
                 
-                # Parse arguments from JSON string
                 args = json.loads(arguments) if isinstance(arguments, str) else arguments
                 tool_calls.append(create_tool_call(name=name, args=args, id=tc_id))
             except (json.JSONDecodeError, KeyError, AttributeError) as e:
@@ -294,7 +291,6 @@ class ChatGradient(BaseChatModel):
         if "stop_sequences" in parameters:
             parameters["stop"] = parameters.pop("stop_sequences")
 
-        # Handle tools from kwargs (e.g., from bind_tools)
         tools = kwargs.get("tools") or self.tools
         tool_choice = kwargs.get("tool_choice") or self.tool_choice
         
@@ -303,7 +299,6 @@ class ChatGradient(BaseChatModel):
         if tool_choice:
             parameters["tool_choice"] = tool_choice
 
-        # Only pass expected keyword arguments to create()
         completion = inference_client.chat.completions.create(**parameters)
         choice = completion.choices[0]
         content = (
@@ -324,7 +319,6 @@ class ChatGradient(BaseChatModel):
             "id": getattr(completion, "id", None),
         }
         
-        # Parse tool calls from response
         tool_calls = []
         raw_tool_calls = getattr(choice.message, "tool_calls", None)
         if raw_tool_calls:
@@ -390,15 +384,12 @@ class ChatGradient(BaseChatModel):
             for completion in stream:
                 delta = completion.choices[0].delta
                 
-                # Extract content
                 content = getattr(delta, "content", None) or ""
                 
-                # Extract tool call chunks
                 tool_call_chunks = []
                 raw_tool_calls = getattr(delta, "tool_calls", None)
                 if raw_tool_calls:
                     for tc in raw_tool_calls:
-                        # Handle both object and dict responses
                         if hasattr(tc, "function"):
                             func = tc.function
                             name = getattr(func, "name", None)
@@ -421,11 +412,9 @@ class ChatGradient(BaseChatModel):
                             )
                         )
                 
-                # Skip empty chunks (no content and no tool calls)
                 if not content and not tool_call_chunks:
                     continue
                 
-                # Create the chunk message
                 chunk_kwargs: Dict[str, Any] = {"content": content}
                 if tool_call_chunks:
                     chunk_kwargs["tool_call_chunks"] = tool_call_chunks
@@ -517,16 +506,12 @@ class ChatGradient(BaseChatModel):
             >>> llm_with_tools = llm.bind_tools([get_weather])
             >>> response = llm_with_tools.invoke("What's the weather in SF?")
         """
-        # Convert tools to OpenAI format
         formatted_tools = [convert_to_openai_tool(tool) for tool in tools]
         
-        # Handle tool_choice - default to "auto" if not specified
         formatted_tool_choice = tool_choice
         if tool_choice == "any":
-            # "any" is LangChain's way of saying "required"
             formatted_tool_choice = "required"
         elif tool_choice is None:
-            # Default to "auto" to enable tool calling
             formatted_tool_choice = "auto"
         
         return self.bind(

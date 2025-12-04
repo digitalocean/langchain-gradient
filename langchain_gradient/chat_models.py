@@ -1,7 +1,9 @@
 """LangchainDigitalocean chat models."""
 
+import json
+import logging
 import os
-from typing import Any, Dict, Iterator, List, Optional, Union
+from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Union
 
 from gradient import Gradient
 from langchain_core.callbacks import (
@@ -12,12 +14,20 @@ from langchain_core.messages import (
     AIMessage,
     AIMessageChunk,
     BaseMessage,
+    ToolMessage,
 )
+from langchain_core.messages.tool import ToolCall, tool_call as create_tool_call
+from langchain_core.messages.tool import tool_call_chunk as create_tool_call_chunk
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
+from langchain_core.runnables import Runnable
+from langchain_core.tools import BaseTool
+from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic import Field, model_validator
 from typing_extensions import TypedDict
 
 from .constants import ALLOWED_MODEL_FIELDS
+
+logger = logging.getLogger(__name__)
 
 
 class StreamOptions(TypedDict, total=False):
@@ -141,6 +151,10 @@ class ChatGradient(BaseChatModel):
     """Timeout for requests."""
     max_retries: int = 2
     """Max number of retries."""
+    tools: Optional[List[Dict[str, Any]]] = None
+    """Tools available to the model (in OpenAI format)."""
+    tool_choice: Optional[Union[str, Dict[str, Any]]] = None
+    """Tool choice strategy: 'auto', 'none', 'required', or specific tool."""
 
     @model_validator(mode="before")
     @classmethod
@@ -193,6 +207,63 @@ class ChatGradient(BaseChatModel):
             if key not in parameters and value is not None:
                 parameters[key] = value
 
+    def _convert_message(self, msg: BaseMessage) -> Dict[str, Any]:
+        """Convert a LangChain message to OpenAI API format."""
+        if hasattr(msg, "type"):
+            role = {"human": "user", "ai": "assistant", "system": "system", "tool": "tool"}.get(
+                msg.type, msg.type
+            )
+        else:
+            role = getattr(msg, "role", "user")
+        
+        result: Dict[str, Any] = {"role": role, "content": msg.content}
+        
+        # Handle ToolMessage - needs tool_call_id
+        if isinstance(msg, ToolMessage):
+            result["tool_call_id"] = msg.tool_call_id
+        
+        # Handle AIMessage with tool_calls
+        if isinstance(msg, AIMessage) and msg.tool_calls:
+            result["tool_calls"] = [
+                {
+                    "id": tc["id"],
+                    "type": "function",
+                    "function": {
+                        "name": tc["name"],
+                        "arguments": json.dumps(tc["args"]),
+                    },
+                }
+                for tc in msg.tool_calls
+            ]
+        
+        return result
+
+    def _parse_tool_calls(self, raw_tool_calls: List[Any]) -> List[ToolCall]:
+        """Parse raw tool calls from API response into LangChain format."""
+        tool_calls = []
+        for tc in raw_tool_calls:
+            try:
+                # Handle both object and dict responses
+                if hasattr(tc, "function"):
+                    func = tc.function
+                    name = func.name if hasattr(func, "name") else func.get("name")
+                    arguments = func.arguments if hasattr(func, "arguments") else func.get("arguments")
+                    tc_id = tc.id if hasattr(tc, "id") else tc.get("id")
+                else:
+                    func = tc.get("function", {})
+                    name = func.get("name")
+                    arguments = func.get("arguments")
+                    tc_id = tc.get("id")
+                
+                # Parse arguments from JSON string
+                args = json.loads(arguments) if isinstance(arguments, str) else arguments
+                tool_calls.append(create_tool_call(name=name, args=args, id=tc_id))
+            except (json.JSONDecodeError, KeyError, AttributeError) as e:
+                logger.warning(
+                    f"Failed to parse tool call, skipping. Tool call data: {tc}, Error: {e}"
+                )
+        return tool_calls
+
     def _generate(
         self,
         messages: List[BaseMessage],
@@ -213,17 +284,8 @@ class ChatGradient(BaseChatModel):
             user_agent_version=self.user_agent_version,
         )
 
-        def convert_message(msg: BaseMessage) -> Dict[str, Any]:
-            if hasattr(msg, "type"):
-                role = {"human": "user", "ai": "assistant", "system": "system"}.get(
-                    msg.type, msg.type
-                )
-            else:
-                role = getattr(msg, "role", "user")
-            return {"role": role, "content": msg.content}
-
         parameters: Dict[str, Any] = {
-            "messages": [convert_message(m) for m in messages],
+            "messages": [self._convert_message(m) for m in messages],
             "model": self.model_name,
         }
 
@@ -232,6 +294,15 @@ class ChatGradient(BaseChatModel):
         if "stop_sequences" in parameters:
             parameters["stop"] = parameters.pop("stop_sequences")
 
+        # Handle tools from kwargs (e.g., from bind_tools)
+        tools = kwargs.get("tools") or self.tools
+        tool_choice = kwargs.get("tool_choice") or self.tool_choice
+        
+        if tools:
+            parameters["tools"] = tools
+        if tool_choice:
+            parameters["tool_choice"] = tool_choice
+
         # Only pass expected keyword arguments to create()
         completion = inference_client.chat.completions.create(**parameters)
         choice = completion.choices[0]
@@ -239,7 +310,8 @@ class ChatGradient(BaseChatModel):
             choice.message.content
             if hasattr(choice.message, "content")
             else choice.message
-        )
+        ) or ""  # Ensure content is never None
+        
         usage = getattr(completion, "usage", {})
         response_metadata = {
             "finish_reason": getattr(choice, "finish_reason", None),
@@ -251,11 +323,22 @@ class ChatGradient(BaseChatModel):
             "model_name": getattr(completion, "model", None),
             "id": getattr(completion, "id", None),
         }
-        message_kwargs = {
+        
+        # Parse tool calls from response
+        tool_calls = []
+        raw_tool_calls = getattr(choice.message, "tool_calls", None)
+        if raw_tool_calls:
+            tool_calls = self._parse_tool_calls(raw_tool_calls)
+        
+        message_kwargs: Dict[str, Any] = {
             "content": content,
             "additional_kwargs": {"refusal": getattr(choice.message, "refusal", None)},
             "response_metadata": response_metadata,
         }
+        
+        if tool_calls:
+            message_kwargs["tool_calls"] = tool_calls
+        
         if self.stream_options and self.stream_options.get("include_usage"):
             message_kwargs["usage_metadata"] = {
                 "input_tokens": getattr(usage, "prompt_tokens", None),
@@ -285,33 +368,70 @@ class ChatGradient(BaseChatModel):
             user_agent_version=self.user_agent_version, 
         )
 
-        def convert_message(msg: BaseMessage) -> Dict[str, Any]:
-            if hasattr(msg, "type"):
-                role = {"human": "user", "ai": "assistant", "system": "system"}.get(
-                    msg.type, msg.type
-                )
-            else:
-                role = getattr(msg, "role", "user")
-            return {"role": role, "content": msg.content}
-
         parameters: Dict[str, Any] = {
-            "messages": [convert_message(m) for m in messages],
+            "messages": [self._convert_message(m) for m in messages],
             "stream": True,  # Enable streaming
             "model": self.model_name,
         }
         
         self._update_parameters_with_model_fields(parameters)
 
+        # Handle tools from kwargs (e.g., from bind_tools)
+        tools = kwargs.get("tools") or self.tools
+        tool_choice = kwargs.get("tool_choice") or self.tool_choice
+        
+        if tools:
+            parameters["tools"] = tools
+        if tool_choice:
+            parameters["tool_choice"] = tool_choice
+
         try:
             stream = inference_client.chat.completions.create(**parameters)
             for completion in stream:
-                # Extract the streamed content
-                content = completion.choices[0].delta.content
-                if not content:
-                    continue  # skip empty chunks
-
-                chunk = ChatGenerationChunk(message=AIMessageChunk(content=content))
-                if run_manager:
+                delta = completion.choices[0].delta
+                
+                # Extract content
+                content = getattr(delta, "content", None) or ""
+                
+                # Extract tool call chunks
+                tool_call_chunks = []
+                raw_tool_calls = getattr(delta, "tool_calls", None)
+                if raw_tool_calls:
+                    for tc in raw_tool_calls:
+                        # Handle both object and dict responses
+                        if hasattr(tc, "function"):
+                            func = tc.function
+                            name = getattr(func, "name", None)
+                            arguments = getattr(func, "arguments", None)
+                            tc_id = getattr(tc, "id", None)
+                            index = getattr(tc, "index", None)
+                        else:
+                            func = tc.get("function", {})
+                            name = func.get("name")
+                            arguments = func.get("arguments")
+                            tc_id = tc.get("id")
+                            index = tc.get("index")
+                        
+                        tool_call_chunks.append(
+                            create_tool_call_chunk(
+                                name=name,
+                                args=arguments,
+                                id=tc_id,
+                                index=index,
+                            )
+                        )
+                
+                # Skip empty chunks (no content and no tool calls)
+                if not content and not tool_call_chunks:
+                    continue
+                
+                # Create the chunk message
+                chunk_kwargs: Dict[str, Any] = {"content": content}
+                if tool_call_chunks:
+                    chunk_kwargs["tool_call_chunks"] = tool_call_chunks
+                
+                chunk = ChatGenerationChunk(message=AIMessageChunk(**chunk_kwargs))
+                if run_manager and content:
                     run_manager.on_llm_new_token(content, chunk=chunk)
                 yield chunk
 
@@ -361,3 +481,56 @@ class ChatGradient(BaseChatModel):
 
     def __setstate__(self, state: dict) -> None:
         self.__dict__.update(state)
+
+    def bind_tools(
+        self,
+        tools: Sequence[Union[Dict[str, Any], type, Callable, BaseTool]],
+        *,
+        tool_choice: Optional[Union[str, Dict[str, Any]]] = None,
+        **kwargs: Any,
+    ) -> Runnable[Any, AIMessage]:
+        """Bind tools to the model.
+
+        Args:
+            tools: Sequence of tools to bind to the model. Can be:
+                - OpenAI-format tool dicts
+                - Pydantic models
+                - Python functions
+                - LangChain BaseTool instances
+            tool_choice: Tool choice strategy:
+                - "auto": Let the model decide (default)
+                - "none": Don't use tools
+                - "required": Must use a tool
+                - {"type": "function", "function": {"name": "tool_name"}}: Use specific tool
+
+        Returns:
+            A Runnable that returns an AIMessage, potentially with tool_calls.
+
+        Example:
+            >>> from langchain_core.tools import tool
+            >>> @tool
+            ... def get_weather(location: str) -> str:
+            ...     '''Get weather for a location.'''
+            ...     return f"Weather in {location}: sunny"
+            >>> 
+            >>> llm = ChatGradient(model="llama3.3-70b-instruct")
+            >>> llm_with_tools = llm.bind_tools([get_weather])
+            >>> response = llm_with_tools.invoke("What's the weather in SF?")
+        """
+        # Convert tools to OpenAI format
+        formatted_tools = [convert_to_openai_tool(tool) for tool in tools]
+        
+        # Handle tool_choice - default to "auto" if not specified
+        formatted_tool_choice = tool_choice
+        if tool_choice == "any":
+            # "any" is LangChain's way of saying "required"
+            formatted_tool_choice = "required"
+        elif tool_choice is None:
+            # Default to "auto" to enable tool calling
+            formatted_tool_choice = "auto"
+        
+        return self.bind(
+            tools=formatted_tools,
+            tool_choice=formatted_tool_choice,
+            **kwargs,
+        )

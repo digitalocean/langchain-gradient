@@ -17,5 +17,7 @@ ALLOWED_MODEL_FIELDS = {
     "user",
     "timeout",
     "stream_options",
+    "tools",
+    "tool_choice",
     # Add new fields here as needed
 }

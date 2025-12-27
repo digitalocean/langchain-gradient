@@ -171,7 +171,7 @@ class ChatGradient(BaseChatModel):
 
     @property
     def user_agent_version(self) -> str:
-        return "0.1.22"
+        return "0.1.23"
     
     @property
     def _llm_type(self) -> str:

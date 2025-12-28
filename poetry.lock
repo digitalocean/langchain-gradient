@@ -83,29 +83,6 @@ jupyter = ["ipython (>=7.8.0)", "tokenize-rt (>=3.2.0)"]
 uvloop = ["uvloop (>=0.15.2)"]
 
 [[package]]
-name = "c63a5cfe-b235-4fbe-8bbb-82a9e02a482a-python"
-version = "0.1.0a17"
-description = "The official Python library for GradientAI"
-optional = false
-python-versions = ">=3.8"
-groups = ["main"]
-files = [
-    {file = "c63a5cfe_b235_4fbe_8bbb_82a9e02a482a_python-0.1.0a17-py3-none-any.whl", hash = "sha256:8aafe466f8f2df7bd508fe96079a85589ef927609988e6b64f125bbec2839818"},
-    {file = "c63a5cfe_b235_4fbe_8bbb_82a9e02a482a_python-0.1.0a17.tar.gz", hash = "sha256:dc7bd8b29a0bafb83166a5ef93873a8b8a601a4746b92c3c918909370f922276"},
-]
-
-[package.dependencies]
-anyio = ">=3.5.0,<5"
-distro = ">=1.7.0,<2"
-httpx = ">=0.23.0,<1"
-pydantic = ">=1.9.0,<3"
-sniffio = "*"
-typing-extensions = ">=4.10,<5"
-
-[package.extras]
-aiohttp = ["aiohttp", "httpx-aiohttp (>=0.1.8)"]
-
-[[package]]
 name = "certifi"
 version = "2025.7.14"
 description = "Python package for providing Mozilla's CA Bundle."
@@ -2370,4 +2347,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.9,<4.0"
-content-hash = "ca21ca8587c65e7cff3f0ef754c926b9707d40acfc26e753b0546a997323270e"
+content-hash = "f500b30fd75503aed2d6a5ff79be082f6b1063d3cc01a0813ae36a465008e6ce"

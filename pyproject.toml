@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "langchain-gradient"
-version = "0.1.23"
+version = "0.1.24"
 description = "An integration package connecting Digitalocean and LangChain"
 authors = []
 readme = "README.md"
@@ -23,7 +23,6 @@ python = ">=3.9,<4.0"
 langchain-core = "^0.3.81"
 python-digitalocean = "^1.17.0"
 langchain-tests = "^0.3.20"
-c63a5cfe-b235-4fbe-8bbb-82a9e02a482a-python = {version = "^0.1.0a17", allow-prereleases = true}
 python-dotenv = "^1.0.0"
 typing_extensions = "^4.0.0"
 gradient = "^3.0.0"

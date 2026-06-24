@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "langchain-gradient"
-version = "0.1.24"
+version = "0.2.0"
 description = "An integration package connecting Digitalocean and LangChain"
 authors = []
 readme = "README.md"
@@ -19,10 +19,9 @@ disallow_untyped_defs = "True"
 "Release Notes" = "https://github.com/langchain-ai/langchain/releases?q=tag%3A%22gradient%3D%3D0%22&expanded=true"
 
 [tool.poetry.dependencies]
-python = ">=3.9,<4.0"
-langchain-core = "^0.3.81"
+python = ">=3.10,<4.0"
+langchain-core = ">=0.3.81,<2.0.0"
 python-digitalocean = "^1.17.0"
-langchain-tests = "^0.3.20"
 python-dotenv = "^1.0.0"
 typing_extensions = "^4.0.0"
 gradient = "^3.0.0"
@@ -56,11 +55,11 @@ black = "^25.1.0"
 ruff = "^0.12.4"
 
 [tool.poetry.group.test.dependencies]
-pytest = "^7.4.3"
-pytest-asyncio = "^0.23.2"
+pytest = ">=7.4.3,<10.0.0"
+pytest-asyncio = ">=0.23.2,<2.0.0"
 pytest-socket = "^0.7.0"
 pytest-watcher = "^0.3.4"
-langchain-tests = "0.3.20"
+langchain-tests = ">=0.3.20,<2.0.0"
 
 [tool.poetry.group.codespell.dependencies]
 codespell = "^2.2.6"

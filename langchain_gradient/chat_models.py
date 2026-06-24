@@ -167,7 +167,7 @@ class ChatGradient(BaseChatModel):
 
     @property
     def user_agent_package(self) -> str:
-        return f"LangChain"
+        return "LangChain"
 
     @property
     def user_agent_version(self) -> str:
@@ -460,7 +460,13 @@ class ChatGradient(BaseChatModel):
 
     @classmethod
     def is_lc_serializable(cls) -> bool:
-        return True
+        # langchain-core 1.x only deserializes classes registered in its internal
+        # serialization allowlist (ALL_SERIALIZABLE_MAPPINGS). As a third-party
+        # partner package, ChatGradient is not registered there, so load() cannot
+        # round-trip it even with allowed_objects="all". Declaring the model
+        # non-serializable reflects that reality rather than advertising a path
+        # that fails at deserialization time.
+        return False
 
     def __getstate__(self) -> dict:
         state = self.__dict__.copy()

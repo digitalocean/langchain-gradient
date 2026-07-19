@@ -382,6 +382,8 @@ class ChatGradient(BaseChatModel):
         try:
             stream = inference_client.chat.completions.create(**parameters)
             for completion in stream:
+                if not completion.choices:
+                    continue
                 delta = completion.choices[0].delta
                 
                 content = getattr(delta, "content", None) or ""

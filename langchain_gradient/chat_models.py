@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+from importlib.metadata import version
 from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Union
 
 from gradient import Gradient
@@ -171,7 +172,7 @@ class ChatGradient(BaseChatModel):
 
     @property
     def user_agent_version(self) -> str:
-        return "0.1.24"
+        return version("langchain-gradient")
     
     @property
     def _llm_type(self) -> str:

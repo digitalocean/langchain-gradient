@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-07-23
+
+### Fixed
+- Streaming no longer crashes on chunks with empty `choices` (e.g. the usage-only final chunk emitted when `stream_options={"include_usage": True}`). Thanks @MrDiggles2! (#27)
+- `stream_options` is no longer sent on non-streaming requests. The inference API rejects it unless `stream=True`, so `invoke()` on models configured with `stream_options` failed with a 400 validation error. `usage_metadata` is still populated from the response. (#29)
+- `user_agent_version` now reports the actual installed package version instead of a hardcoded stale one.
+
+### Changed
+- Updated integration tests for the current inference API: replaced retired models (`mistral-nemo-instruct-2407`, `llama3-8b-instruct`) with currently served ones (`mistral-3-14B`, `openai-gpt-oss-20b`); empty prompts are now accepted by the API; raised the o3-mini test token budget so reasoning doesn't exhaust it. (#28)
+
 ## [0.2.0] - 2026-06-24
 
 ### Changed

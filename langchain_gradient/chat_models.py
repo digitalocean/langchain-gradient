@@ -288,6 +288,12 @@ class ChatGradient(BaseChatModel):
 
         self._update_parameters_with_model_fields(parameters)
 
+        # The API rejects stream_options on non-streaming requests
+        # ("Stream options can only be defined when `stream=True`").
+        # Usage data is returned on non-streaming responses regardless,
+        # and is read from completion.usage below.
+        parameters.pop("stream_options", None)
+
         if "stop_sequences" in parameters:
             parameters["stop"] = parameters.pop("stop_sequences")
 

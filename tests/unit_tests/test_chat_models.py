@@ -225,3 +225,95 @@ class TestStreaming:
 
         assert len(chunks) == 1
         assert chunks[0].message.content == "hello"
+
+
+class TestStreamOptions:
+    """Unit tests for stream_options request parameter handling."""
+
+    @staticmethod
+    def _fake_gradient(captured: dict):
+        class FakeGradient:
+            def __init__(self, **kwargs) -> None:
+                del kwargs
+                self.chat = SimpleNamespace(
+                    completions=SimpleNamespace(create=self._create)
+                )
+
+            def _create(self, **kwargs):
+                captured.update(kwargs)
+                if kwargs.get("stream"):
+                    return iter(
+                        [
+                            SimpleNamespace(
+                                choices=[
+                                    SimpleNamespace(
+                                        delta=SimpleNamespace(
+                                            content="hello", tool_calls=None
+                                        )
+                                    )
+                                ],
+                                usage=SimpleNamespace(
+                                    prompt_tokens=1,
+                                    completion_tokens=2,
+                                    total_tokens=3,
+                                ),
+                            ),
+                        ]
+                    )
+                return SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(
+                            message=SimpleNamespace(
+                                content="hello", tool_calls=None, refusal=None
+                            ),
+                            finish_reason="stop",
+                        )
+                    ],
+                    usage=SimpleNamespace(
+                        prompt_tokens=1, completion_tokens=2, total_tokens=3
+                    ),
+                    model="llama3.3-70b-instruct",
+                    id="cmpl-123",
+                )
+
+        return FakeGradient
+
+    def test_stream_options_not_sent_on_invoke(self, monkeypatch) -> None:
+        """The API rejects stream_options when stream=True is not set, so it
+        must be stripped from non-streaming requests."""
+        captured: dict = {}
+        monkeypatch.setattr(
+            "langchain_gradient.chat_models.Gradient", self._fake_gradient(captured)
+        )
+
+        llm = ChatGradient(
+            model="llama3.3-70b-instruct",
+            api_key="test-key",
+            stream_options={"include_usage": True},
+        )
+        result = llm.invoke([HumanMessage(content="hi")])
+
+        assert "stream_options" not in captured
+        assert result.content == "hello"
+        assert result.usage_metadata == {
+            "input_tokens": 1,
+            "output_tokens": 2,
+            "total_tokens": 3,
+        }
+
+    def test_stream_options_sent_when_streaming(self, monkeypatch) -> None:
+        """stream_options is a valid parameter for streaming requests."""
+        captured: dict = {}
+        monkeypatch.setattr(
+            "langchain_gradient.chat_models.Gradient", self._fake_gradient(captured)
+        )
+
+        llm = ChatGradient(
+            model="llama3.3-70b-instruct",
+            api_key="test-key",
+            stream_options={"include_usage": True},
+        )
+        list(llm._stream([HumanMessage(content="hi")]))
+
+        assert captured.get("stream") is True
+        assert captured.get("stream_options") == {"include_usage": True}

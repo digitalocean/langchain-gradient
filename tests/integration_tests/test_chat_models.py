@@ -143,9 +143,11 @@ def test_timeout_param() -> None:
     reason="No Gradient API key set",
 )
 def test_empty_prompt() -> None:
+    # The inference API accepts empty message content and returns a normal
+    # completion rather than raising an error.
     llm = ChatGradient(api_key=os.environ.get("DIGITALOCEAN_INFERENCE_KEY"))
-    with pytest.raises(Exception):
-        llm.invoke([HumanMessage(content="")])
+    result = llm.invoke([HumanMessage(content="")])
+    assert result.content is not None
 
 
 @pytest.mark.skipif(

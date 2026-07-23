@@ -8,19 +8,13 @@ load_dotenv()
 
 MODELS_TO_TEST = [
     "openai-o3-mini",
-    "mistral-nemo-instruct-2407",
+    "mistral-3-14B",
     "openai-gpt-4o-mini",
     "openai-gpt-4o",
-    "llama3-8b-instruct",
+    "openai-gpt-oss-20b",
     "deepseek-r1-distill-llama-70b",
     "llama3.3-70b-instruct"
 ]
-
-# "llama3-70b-instruct",
-# "anthropic-claude-3.7-sonnet",
-# "anthropic-claude-3.5-sonnet",
-# "anthropic-claude-3.5-haiku",
-# "anthropic-claude-3-opus",
 
 @pytest.mark.skipif(
     not os.environ.get("DIGITALOCEAN_INFERENCE_KEY"),

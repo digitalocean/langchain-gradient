@@ -14,7 +14,10 @@ pytestmark = pytest.mark.skipif(
 )
 
 def test_openai_o3_mini_max_completion_tokens():
-    llm = ChatGradient(model="openai-o3-mini", api_key=API_KEY, max_tokens=256)
+    # o3-mini is a reasoning model: a small token budget can be consumed
+    # entirely by reasoning, leaving empty content. Use a budget large
+    # enough to also produce visible output.
+    llm = ChatGradient(model="openai-o3-mini", api_key=API_KEY, max_tokens=4096)
     prompt = [HumanMessage(content="Say hello to the world!")]
     result = llm.invoke(prompt)
     assert result.content

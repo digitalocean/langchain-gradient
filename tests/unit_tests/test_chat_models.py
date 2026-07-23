@@ -2,6 +2,7 @@
 
 import json
 import os
+from types import SimpleNamespace
 from typing import Type
 
 from dotenv import load_dotenv
@@ -185,3 +186,42 @@ class TestToolCalling:
         # Should not raise, just skip the invalid tool call
         parsed = llm._parse_tool_calls(raw_tool_calls)
         assert len(parsed) == 0
+
+
+class TestStreaming:
+    """Unit tests for streaming behavior."""
+
+    def test_stream_skips_empty_choices_chunks(self, monkeypatch) -> None:
+        """Test that chunks with empty choices are ignored during streaming."""
+
+        class FakeGradient:
+            def __init__(self, **kwargs) -> None:
+                del kwargs
+                self.chat = SimpleNamespace(
+                    completions=SimpleNamespace(create=self._create)
+                )
+
+            def _create(self, **kwargs):
+                del kwargs
+                return iter(
+                    [
+                        SimpleNamespace(choices=[]),
+                        SimpleNamespace(
+                            choices=[
+                                SimpleNamespace(
+                                    delta=SimpleNamespace(
+                                        content="hello", tool_calls=None
+                                    )
+                                )
+                            ]
+                        ),
+                    ]
+                )
+
+        monkeypatch.setattr("langchain_gradient.chat_models.Gradient", FakeGradient)
+
+        llm = ChatGradient(model="llama3.3-70b-instruct", api_key="test-key")
+        chunks = list(llm._stream([HumanMessage(content="hi")]))
+
+        assert len(chunks) == 1
+        assert chunks[0].message.content == "hello"

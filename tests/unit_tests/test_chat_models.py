@@ -187,6 +187,23 @@ class TestToolCalling:
         parsed = llm._parse_tool_calls(raw_tool_calls)
         assert len(parsed) == 0
 
+    def test_parse_tool_calls_handles_overescaped_json(self) -> None:
+        """Test that over-escaped JSON in arguments is repaired."""
+        llm = ChatGradient(model="llama3.3-70b-instruct", api_key="test-key")
+
+        raw_tool_calls = [
+            {
+                "id": "call_789",
+                "function": {"name": "get_weather", "arguments": '{\\"location\\": \\"NYC\\"}'},
+            }
+        ]
+        parsed = llm._parse_tool_calls(raw_tool_calls)
+
+        assert len(parsed) == 1
+        assert parsed[0]["name"] == "get_weather"
+        assert parsed[0]["args"] == {"location": "NYC"}
+        assert parsed[0]["id"] == "call_789"
+
 
 class TestStreaming:
     """Unit tests for streaming behavior."""

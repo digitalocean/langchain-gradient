@@ -17,7 +17,8 @@ from langchain_core.messages import (
     BaseMessage,
     ToolMessage,
 )
-from langchain_core.messages.tool import ToolCall, tool_call as create_tool_call
+from langchain_core.messages.tool import ToolCall
+from langchain_core.messages.tool import tool_call as create_tool_call
 from langchain_core.messages.tool import tool_call_chunk as create_tool_call_chunk
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 from langchain_core.runnables import Runnable
@@ -109,6 +110,7 @@ class ChatGradient(BaseChatModel):
     _stream(messages, ...)
         Stream chat completions for the given messages.
     """
+
     api_key: Optional[str] = Field(
         default=os.environ.get("DIGITALOCEAN_INFERENCE_KEY"),
         exclude=True,
@@ -173,7 +175,7 @@ class ChatGradient(BaseChatModel):
     @property
     def user_agent_version(self) -> str:
         return version("langchain-gradient")
-    
+
     @property
     def _llm_type(self) -> str:
         """Return type of chat model."""
@@ -211,17 +213,20 @@ class ChatGradient(BaseChatModel):
     def _convert_message(self, msg: BaseMessage) -> Dict[str, Any]:
         """Convert a LangChain message to OpenAI API format."""
         if hasattr(msg, "type"):
-            role = {"human": "user", "ai": "assistant", "system": "system", "tool": "tool"}.get(
-                msg.type, msg.type
-            )
+            role = {
+                "human": "user",
+                "ai": "assistant",
+                "system": "system",
+                "tool": "tool",
+            }.get(msg.type, msg.type)
         else:
             role = getattr(msg, "role", "user")
-        
+
         result: Dict[str, Any] = {"role": role, "content": msg.content}
-        
+
         if isinstance(msg, ToolMessage):
             result["tool_call_id"] = msg.tool_call_id
-        
+
         if isinstance(msg, AIMessage) and msg.tool_calls:
             result["tool_calls"] = [
                 {
@@ -234,8 +239,25 @@ class ChatGradient(BaseChatModel):
                 }
                 for tc in msg.tool_calls
             ]
-        
+
         return result
+
+    def _parse_tool_arguments(self, arguments: Any) -> Any:
+        """
+        Parse / repair LLM tool-call argument payloads.
+
+        Models (especially open-weight ones) occasionally emit over-escaped JSON
+        in tool-call `arguments`, e.g. ``{"query": \\"foo\\"}`` instead of
+        ``{"query": "foo"}``.
+        """
+        if not isinstance(arguments, str):
+            return arguments
+        try:
+            return json.loads(arguments)
+        except json.JSONDecodeError:
+            # Only applied after json.loads already failed, so legitimate JSON with
+            # in-string escapes (\"hello\") is never rewritten.
+            return json.loads(arguments.replace('\\"', '"'))
 
     def _parse_tool_calls(self, raw_tool_calls: List[Any]) -> List[ToolCall]:
         """Parse raw tool calls from API response into LangChain format."""
@@ -246,15 +268,19 @@ class ChatGradient(BaseChatModel):
                 if hasattr(tc, "function"):
                     func = tc.function
                     name = func.name if hasattr(func, "name") else func.get("name")
-                    arguments = func.arguments if hasattr(func, "arguments") else func.get("arguments")
+                    arguments = (
+                        func.arguments
+                        if hasattr(func, "arguments")
+                        else func.get("arguments")
+                    )
                     tc_id = tc.id if hasattr(tc, "id") else tc.get("id")
                 else:
                     func = tc.get("function", {})
                     name = func.get("name")
                     arguments = func.get("arguments")
                     tc_id = tc.get("id")
-                
-                args = json.loads(arguments) if isinstance(arguments, str) else arguments
+
+                args = self._parse_tool_arguments(arguments)
                 tool_calls.append(create_tool_call(name=name, args=args, id=tc_id))
             except (json.JSONDecodeError, KeyError, AttributeError) as e:
                 logger.warning(
@@ -300,7 +326,7 @@ class ChatGradient(BaseChatModel):
 
         tools = kwargs.get("tools") or self.tools
         tool_choice = kwargs.get("tool_choice") or self.tool_choice
-        
+
         if tools:
             parameters["tools"] = tools
         if tool_choice:
@@ -313,7 +339,7 @@ class ChatGradient(BaseChatModel):
             if hasattr(choice.message, "content")
             else choice.message
         ) or ""  # Ensure content is never None
-        
+
         usage = getattr(completion, "usage", {})
         response_metadata = {
             "finish_reason": getattr(choice, "finish_reason", None),
@@ -325,21 +351,21 @@ class ChatGradient(BaseChatModel):
             "model_name": getattr(completion, "model", None),
             "id": getattr(completion, "id", None),
         }
-        
+
         tool_calls = []
         raw_tool_calls = getattr(choice.message, "tool_calls", None)
         if raw_tool_calls:
             tool_calls = self._parse_tool_calls(raw_tool_calls)
-        
+
         message_kwargs: Dict[str, Any] = {
             "content": content,
             "additional_kwargs": {"refusal": getattr(choice.message, "refusal", None)},
             "response_metadata": response_metadata,
         }
-        
+
         if tool_calls:
             message_kwargs["tool_calls"] = tool_calls
-        
+
         if self.stream_options and self.stream_options.get("include_usage"):
             message_kwargs["usage_metadata"] = {
                 "input_tokens": getattr(usage, "prompt_tokens", None),
@@ -366,7 +392,7 @@ class ChatGradient(BaseChatModel):
             model_access_key=self.api_key,
             base_url="https://inference.do-ai.run/v1",
             user_agent_package=self.user_agent_package,
-            user_agent_version=self.user_agent_version, 
+            user_agent_version=self.user_agent_version,
         )
 
         parameters: Dict[str, Any] = {
@@ -374,13 +400,13 @@ class ChatGradient(BaseChatModel):
             "stream": True,  # Enable streaming
             "model": self.model_name,
         }
-        
+
         self._update_parameters_with_model_fields(parameters)
 
         # Handle tools from kwargs (e.g., from bind_tools)
         tools = kwargs.get("tools") or self.tools
         tool_choice = kwargs.get("tool_choice") or self.tool_choice
-        
+
         if tools:
             parameters["tools"] = tools
         if tool_choice:
@@ -392,9 +418,9 @@ class ChatGradient(BaseChatModel):
                 if not completion.choices:
                     continue
                 delta = completion.choices[0].delta
-                
+
                 content = getattr(delta, "content", None) or ""
-                
+
                 tool_call_chunks = []
                 raw_tool_calls = getattr(delta, "tool_calls", None)
                 if raw_tool_calls:
@@ -411,7 +437,7 @@ class ChatGradient(BaseChatModel):
                             arguments = func.get("arguments")
                             tc_id = tc.get("id")
                             index = tc.get("index")
-                        
+
                         tool_call_chunks.append(
                             create_tool_call_chunk(
                                 name=name,
@@ -420,14 +446,14 @@ class ChatGradient(BaseChatModel):
                                 index=index,
                             )
                         )
-                
+
                 if not content and not tool_call_chunks:
                     continue
-                
+
                 chunk_kwargs: Dict[str, Any] = {"content": content}
                 if tool_call_chunks:
                     chunk_kwargs["tool_call_chunks"] = tool_call_chunks
-                
+
                 chunk = ChatGenerationChunk(message=AIMessageChunk(**chunk_kwargs))
                 if run_manager and content:
                     run_manager.on_llm_new_token(content, chunk=chunk)
@@ -516,19 +542,19 @@ class ChatGradient(BaseChatModel):
             ... def get_weather(location: str) -> str:
             ...     '''Get weather for a location.'''
             ...     return f"Weather in {location}: sunny"
-            >>> 
+            >>>
             >>> llm = ChatGradient(model="llama3.3-70b-instruct")
             >>> llm_with_tools = llm.bind_tools([get_weather])
             >>> response = llm_with_tools.invoke("What's the weather in SF?")
         """
         formatted_tools = [convert_to_openai_tool(tool) for tool in tools]
-        
+
         formatted_tool_choice = tool_choice
         if tool_choice == "any":
             formatted_tool_choice = "required"
         elif tool_choice is None:
             formatted_tool_choice = "auto"
-        
+
         return self.bind(
             tools=formatted_tools,
             tool_choice=formatted_tool_choice,

@@ -130,9 +130,7 @@ def test_usage_metadata_in_invoke() -> None:
     reason="No Gradient API key set",
 )
 def test_timeout_param() -> None:
-    llm = ChatGradient(
-        api_key=os.environ.get("DIGITALOCEAN_INFERENCE_KEY"), timeout=0.0001
-    )
+    llm = ChatGradient(api_key=os.environ.get("DIGITALOCEAN_INFERENCE_KEY"), timeout=0)
     with pytest.raises(Exception):
         llm.invoke([HumanMessage(content="This should timeout.")])
 
@@ -169,4 +167,3 @@ def test_unicode_prompt() -> None:
     llm = ChatGradient(api_key=os.environ.get("DIGITALOCEAN_INFERENCE_KEY"))
     result = llm.invoke([HumanMessage(content="你好，世界! 🌍")])
     assert result.content is not None
-

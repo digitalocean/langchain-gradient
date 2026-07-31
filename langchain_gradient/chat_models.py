@@ -6,7 +6,6 @@ import os
 from importlib.metadata import version
 from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Union
 
-from gradient import Gradient
 from langchain_core.callbacks import (
     CallbackManagerForLLMRun,
 )
@@ -24,6 +23,7 @@ from langchain_core.runnables import Runnable
 from langchain_core.tools import BaseTool
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic import Field, model_validator
+from pydo.inference import Client
 from typing_extensions import TypedDict
 
 from .constants import ALLOWED_MODEL_FIELDS
@@ -79,8 +79,8 @@ class ChatGradient(BaseChatModel):
         Total probability mass of tokens to consider at each step.
     user : str
         A unique identifier representing the user. Defaults to "langchain-gradient".
-    timeout : Optional[float]
-        Timeout for requests.
+    timeout : Optional[int]
+        Timeout for requests. Defaults to 120 seconds.
     max_retries : int
         Max number of retries. Defaults to 2.
 
@@ -148,8 +148,8 @@ class ChatGradient(BaseChatModel):
     """Total probability mass of tokens to consider at each step."""
     user: str = "langchain-gradient"
     """A unique identifier representing the user."""
-    timeout: Optional[float] = None
-    """Timeout for requests."""
+    timeout: int = 120
+    """Timeout for requests in seconds."""
     max_retries: int = 2
     """Max number of retries."""
     tools: Optional[List[Dict[str, Any]]] = None
@@ -167,13 +167,9 @@ class ChatGradient(BaseChatModel):
         return values
 
     @property
-    def user_agent_package(self) -> str:
-        return "LangChain"
+    def user_agent(self) -> str:
+        return f"langchain-gradient/{version('langchain-gradient')}"
 
-    @property
-    def user_agent_version(self) -> str:
-        return version("langchain-gradient")
-    
     @property
     def _llm_type(self) -> str:
         """Return type of chat model."""
@@ -274,13 +270,12 @@ class ChatGradient(BaseChatModel):
                 "Gradient model access key not provided. Set DIGITALOCEAN_INFERENCE_KEY env var or pass api_key param."
             )
 
-        inference_client = Gradient(
-            model_access_key=self.api_key,
-            base_url="https://inference.do-ai.run/v1",
-            max_retries=self.max_retries,
-            user_agent_package=self.user_agent_package,
-            user_agent_version=self.user_agent_version,
+        inference_client = Client(
+            api_key=self.api_key,
+            timeout=self.timeout,
+            retry_total=self.max_retries,
         )
+        inference_client._config.user_agent_policy.add_user_agent(self.user_agent)
 
         parameters: Dict[str, Any] = {
             "messages": [self._convert_message(m) for m in messages],
@@ -362,12 +357,12 @@ class ChatGradient(BaseChatModel):
                 "Gradient model access key not provided. Set DIGITALOCEAN_INFERENCE_KEY env var or pass api_key param."
             )
 
-        inference_client = Gradient(
-            model_access_key=self.api_key,
-            base_url="https://inference.do-ai.run/v1",
-            user_agent_package=self.user_agent_package,
-            user_agent_version=self.user_agent_version, 
+        inference_client = Client(
+            api_key=self.api_key,
+            timeout=self.timeout,
+            retry_total=self.max_retries,
         )
+        inference_client._config.user_agent_policy.add_user_agent(self.user_agent)
 
         parameters: Dict[str, Any] = {
             "messages": [self._convert_message(m) for m in messages],

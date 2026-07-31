@@ -81,7 +81,7 @@ def test_top_p_param():
 #     assert hasattr(result, "message") or hasattr(result, "generations")
 
 def test_timeout_param():
-    llm = _basic_llm(timeout=0.1)
+    llm = _basic_llm(timeout=0)
     prompt = _basic_prompt()
     try:
         llm.invoke(prompt)

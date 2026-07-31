@@ -200,6 +200,9 @@ class TestStreaming:
                 self.chat = SimpleNamespace(
                     completions=SimpleNamespace(create=self._create)
                 )
+                self._config = SimpleNamespace(
+                    user_agent_policy=SimpleNamespace(add_user_agent=lambda *_: None)
+                )
 
             def _create(self, **kwargs):
                 del kwargs
@@ -218,7 +221,7 @@ class TestStreaming:
                     ]
                 )
 
-        monkeypatch.setattr("langchain_gradient.chat_models.Gradient", FakeGradient)
+        monkeypatch.setattr("langchain_gradient.chat_models.Client", FakeGradient)
 
         llm = ChatGradient(model="llama3.3-70b-instruct", api_key="test-key")
         chunks = list(llm._stream([HumanMessage(content="hi")]))
@@ -237,6 +240,9 @@ class TestStreamOptions:
                 del kwargs
                 self.chat = SimpleNamespace(
                     completions=SimpleNamespace(create=self._create)
+                )
+                self._config = SimpleNamespace(
+                    user_agent_policy=SimpleNamespace(add_user_agent=lambda *_: None)
                 )
 
             def _create(self, **kwargs):
@@ -283,7 +289,7 @@ class TestStreamOptions:
         must be stripped from non-streaming requests."""
         captured: dict = {}
         monkeypatch.setattr(
-            "langchain_gradient.chat_models.Gradient", self._fake_gradient(captured)
+            "langchain_gradient.chat_models.Client", self._fake_gradient(captured)
         )
 
         llm = ChatGradient(
@@ -305,7 +311,7 @@ class TestStreamOptions:
         """stream_options is a valid parameter for streaming requests."""
         captured: dict = {}
         monkeypatch.setattr(
-            "langchain_gradient.chat_models.Gradient", self._fake_gradient(captured)
+            "langchain_gradient.chat_models.Client", self._fake_gradient(captured)
         )
 
         llm = ChatGradient(

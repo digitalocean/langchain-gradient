@@ -24,7 +24,7 @@ langchain-core = ">=0.3.81,<2.0.0"
 python-digitalocean = "^1.17.0"
 python-dotenv = "^1.0.0"
 typing_extensions = "^4.0.0"
-gradient = "^3.0.0"
+pydo = {extras = ["aio"], version = "^0.39.0"}
 
 [tool.coverage.run]
 omit = ["tests/*"]
@@ -63,11 +63,6 @@ langchain-tests = ">=0.3.20,<2.0.0"
 
 [tool.poetry.group.codespell.dependencies]
 codespell = "^2.2.6"
-
-[tool.poetry.group.test_integration.dependencies]
-
-[tool.poetry.group.lint.dependencies]
-
 
 [tool.poetry.group.typing.dependencies]
 mypy = "^1.10"

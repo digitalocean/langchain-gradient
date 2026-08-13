@@ -200,9 +200,6 @@ class TestStreaming:
                 self.chat = SimpleNamespace(
                     completions=SimpleNamespace(create=self._create)
                 )
-                self._config = SimpleNamespace(
-                    user_agent_policy=SimpleNamespace(add_user_agent=lambda *_: None)
-                )
 
             def _create(self, **kwargs):
                 del kwargs
@@ -240,9 +237,6 @@ class TestStreamOptions:
                 del kwargs
                 self.chat = SimpleNamespace(
                     completions=SimpleNamespace(create=self._create)
-                )
-                self._config = SimpleNamespace(
-                    user_agent_policy=SimpleNamespace(add_user_agent=lambda *_: None)
                 )
 
             def _create(self, **kwargs):
@@ -323,3 +317,40 @@ class TestStreamOptions:
 
         assert captured.get("stream") is True
         assert captured.get("stream_options") == {"include_usage": True}
+
+
+class TestTimeoutValidation:
+    """Unit tests for timeout field validation."""
+
+    def test_float_is_coerced_to_int(self) -> None:
+        llm = ChatGradient(
+            model="llama3.3-70b-instruct", api_key="test-key", timeout=30.9
+        )
+        assert llm.timeout == 30
+        assert isinstance(llm.timeout, int)
+
+    def test_zero_raises(self) -> None:
+        import pytest
+
+        with pytest.raises(Exception):
+            ChatGradient(model="llama3.3-70b-instruct", api_key="test-key", timeout=0)
+
+    def test_negative_raises(self) -> None:
+        import pytest
+
+        with pytest.raises(Exception):
+            ChatGradient(model="llama3.3-70b-instruct", api_key="test-key", timeout=-1)
+
+    def test_none_raises(self) -> None:
+        import pytest
+
+        with pytest.raises(Exception):
+            ChatGradient(
+                model="llama3.3-70b-instruct", api_key="test-key", timeout=None
+            )
+
+    def test_valid_int_accepted(self) -> None:
+        llm = ChatGradient(
+            model="llama3.3-70b-instruct", api_key="test-key", timeout=60
+        )
+        assert llm.timeout == 60

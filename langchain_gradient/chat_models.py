@@ -16,13 +16,14 @@ from langchain_core.messages import (
     BaseMessage,
     ToolMessage,
 )
-from langchain_core.messages.tool import ToolCall, tool_call as create_tool_call
+from langchain_core.messages.tool import ToolCall
+from langchain_core.messages.tool import tool_call as create_tool_call
 from langchain_core.messages.tool import tool_call_chunk as create_tool_call_chunk
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 from langchain_core.runnables import Runnable
 from langchain_core.tools import BaseTool
 from langchain_core.utils.function_calling import convert_to_openai_tool
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydo.inference import Client
 from typing_extensions import TypedDict
 
@@ -109,6 +110,7 @@ class ChatGradient(BaseChatModel):
     _stream(messages, ...)
         Stream chat completions for the given messages.
     """
+
     api_key: Optional[str] = Field(
         default=os.environ.get("DIGITALOCEAN_INFERENCE_KEY"),
         exclude=True,
@@ -150,6 +152,16 @@ class ChatGradient(BaseChatModel):
     """A unique identifier representing the user."""
     timeout: int = 120
     """Timeout for requests in seconds."""
+
+    @field_validator("timeout", mode="before")
+    @classmethod
+    def coerce_timeout_to_int(cls, v: Any) -> int:
+        """Accept floats from older callers; truncate to int."""
+        result = int(v)
+        if result <= 0:
+            raise ValueError("timeout must be greater than 0")
+        return result
+
     max_retries: int = 2
     """Max number of retries."""
     tools: Optional[List[Dict[str, Any]]] = None
@@ -207,17 +219,20 @@ class ChatGradient(BaseChatModel):
     def _convert_message(self, msg: BaseMessage) -> Dict[str, Any]:
         """Convert a LangChain message to OpenAI API format."""
         if hasattr(msg, "type"):
-            role = {"human": "user", "ai": "assistant", "system": "system", "tool": "tool"}.get(
-                msg.type, msg.type
-            )
+            role = {
+                "human": "user",
+                "ai": "assistant",
+                "system": "system",
+                "tool": "tool",
+            }.get(msg.type, msg.type)
         else:
             role = getattr(msg, "role", "user")
-        
+
         result: Dict[str, Any] = {"role": role, "content": msg.content}
-        
+
         if isinstance(msg, ToolMessage):
             result["tool_call_id"] = msg.tool_call_id
-        
+
         if isinstance(msg, AIMessage) and msg.tool_calls:
             result["tool_calls"] = [
                 {
@@ -230,7 +245,7 @@ class ChatGradient(BaseChatModel):
                 }
                 for tc in msg.tool_calls
             ]
-        
+
         return result
 
     def _parse_tool_calls(self, raw_tool_calls: List[Any]) -> List[ToolCall]:
@@ -242,15 +257,21 @@ class ChatGradient(BaseChatModel):
                 if hasattr(tc, "function"):
                     func = tc.function
                     name = func.name if hasattr(func, "name") else func.get("name")
-                    arguments = func.arguments if hasattr(func, "arguments") else func.get("arguments")
+                    arguments = (
+                        func.arguments
+                        if hasattr(func, "arguments")
+                        else func.get("arguments")
+                    )
                     tc_id = tc.id if hasattr(tc, "id") else tc.get("id")
                 else:
                     func = tc.get("function", {})
                     name = func.get("name")
                     arguments = func.get("arguments")
                     tc_id = tc.get("id")
-                
-                args = json.loads(arguments) if isinstance(arguments, str) else arguments
+
+                args = (
+                    json.loads(arguments) if isinstance(arguments, str) else arguments
+                )
                 tool_calls.append(create_tool_call(name=name, args=args, id=tc_id))
             except (json.JSONDecodeError, KeyError, AttributeError) as e:
                 logger.warning(
@@ -274,8 +295,8 @@ class ChatGradient(BaseChatModel):
             api_key=self.api_key,
             timeout=self.timeout,
             retry_total=self.max_retries,
+            user_agent=self.user_agent,
         )
-        inference_client._config.user_agent_policy.add_user_agent(self.user_agent)
 
         parameters: Dict[str, Any] = {
             "messages": [self._convert_message(m) for m in messages],
@@ -295,7 +316,7 @@ class ChatGradient(BaseChatModel):
 
         tools = kwargs.get("tools") or self.tools
         tool_choice = kwargs.get("tool_choice") or self.tool_choice
-        
+
         if tools:
             parameters["tools"] = tools
         if tool_choice:
@@ -308,7 +329,7 @@ class ChatGradient(BaseChatModel):
             if hasattr(choice.message, "content")
             else choice.message
         ) or ""  # Ensure content is never None
-        
+
         usage = getattr(completion, "usage", {})
         response_metadata = {
             "finish_reason": getattr(choice, "finish_reason", None),
@@ -320,21 +341,21 @@ class ChatGradient(BaseChatModel):
             "model_name": getattr(completion, "model", None),
             "id": getattr(completion, "id", None),
         }
-        
+
         tool_calls = []
         raw_tool_calls = getattr(choice.message, "tool_calls", None)
         if raw_tool_calls:
             tool_calls = self._parse_tool_calls(raw_tool_calls)
-        
+
         message_kwargs: Dict[str, Any] = {
             "content": content,
             "additional_kwargs": {"refusal": getattr(choice.message, "refusal", None)},
             "response_metadata": response_metadata,
         }
-        
+
         if tool_calls:
             message_kwargs["tool_calls"] = tool_calls
-        
+
         if self.stream_options and self.stream_options.get("include_usage"):
             message_kwargs["usage_metadata"] = {
                 "input_tokens": getattr(usage, "prompt_tokens", None),
@@ -361,21 +382,21 @@ class ChatGradient(BaseChatModel):
             api_key=self.api_key,
             timeout=self.timeout,
             retry_total=self.max_retries,
+            user_agent=self.user_agent,
         )
-        inference_client._config.user_agent_policy.add_user_agent(self.user_agent)
 
         parameters: Dict[str, Any] = {
             "messages": [self._convert_message(m) for m in messages],
             "stream": True,  # Enable streaming
             "model": self.model_name,
         }
-        
+
         self._update_parameters_with_model_fields(parameters)
 
         # Handle tools from kwargs (e.g., from bind_tools)
         tools = kwargs.get("tools") or self.tools
         tool_choice = kwargs.get("tool_choice") or self.tool_choice
-        
+
         if tools:
             parameters["tools"] = tools
         if tool_choice:
@@ -383,66 +404,70 @@ class ChatGradient(BaseChatModel):
 
         try:
             stream = inference_client.chat.completions.create(**parameters)
-            for completion in stream:
-                if not completion.choices:
-                    continue
-                delta = completion.choices[0].delta
-                
-                content = getattr(delta, "content", None) or ""
-                
-                tool_call_chunks = []
-                raw_tool_calls = getattr(delta, "tool_calls", None)
-                if raw_tool_calls:
-                    for tc in raw_tool_calls:
-                        if hasattr(tc, "function"):
-                            func = tc.function
-                            name = getattr(func, "name", None)
-                            arguments = getattr(func, "arguments", None)
-                            tc_id = getattr(tc, "id", None)
-                            index = getattr(tc, "index", None)
-                        else:
-                            func = tc.get("function", {})
-                            name = func.get("name")
-                            arguments = func.get("arguments")
-                            tc_id = tc.get("id")
-                            index = tc.get("index")
-                        
-                        tool_call_chunks.append(
-                            create_tool_call_chunk(
-                                name=name,
-                                args=arguments,
-                                id=tc_id,
-                                index=index,
+            try:
+                for completion in stream:
+                    if not completion.choices:
+                        continue
+                    delta = completion.choices[0].delta
+
+                    content = getattr(delta, "content", None) or ""
+
+                    tool_call_chunks = []
+                    raw_tool_calls = getattr(delta, "tool_calls", None)
+                    if raw_tool_calls:
+                        for tc in raw_tool_calls:
+                            if hasattr(tc, "function"):
+                                func = tc.function
+                                name = getattr(func, "name", None)
+                                arguments = getattr(func, "arguments", None)
+                                tc_id = getattr(tc, "id", None)
+                                index = getattr(tc, "index", None)
+                            else:
+                                func = tc.get("function", {})
+                                name = func.get("name")
+                                arguments = func.get("arguments")
+                                tc_id = tc.get("id")
+                                index = tc.get("index")
+
+                            tool_call_chunks.append(
+                                create_tool_call_chunk(
+                                    name=name,
+                                    args=arguments,
+                                    id=tc_id,
+                                    index=index,
+                                )
+                            )
+
+                    if not content and not tool_call_chunks:
+                        continue
+
+                    chunk_kwargs: Dict[str, Any] = {"content": content}
+                    if tool_call_chunks:
+                        chunk_kwargs["tool_call_chunks"] = tool_call_chunks
+
+                    chunk = ChatGenerationChunk(message=AIMessageChunk(**chunk_kwargs))
+                    if run_manager and content:
+                        run_manager.on_llm_new_token(content, chunk=chunk)
+                    yield chunk
+
+                # Optionally yield usage metadata at the end if available
+                if self.stream_options and self.stream_options.get("include_usage"):
+                    usage = getattr(completion, "usage", {})
+                    usage_metadata = {
+                        "input_tokens": getattr(usage, "prompt_tokens", None),
+                        "output_tokens": getattr(usage, "completion_tokens", None),
+                        "total_tokens": getattr(usage, "total_tokens", None),
+                    }
+                    if any(v is not None for v in usage_metadata.values()):
+                        yield ChatGenerationChunk(
+                            message=AIMessageChunk(
+                                content="",
+                                usage_metadata=usage_metadata,  # type: ignore
                             )
                         )
-                
-                if not content and not tool_call_chunks:
-                    continue
-                
-                chunk_kwargs: Dict[str, Any] = {"content": content}
-                if tool_call_chunks:
-                    chunk_kwargs["tool_call_chunks"] = tool_call_chunks
-                
-                chunk = ChatGenerationChunk(message=AIMessageChunk(**chunk_kwargs))
-                if run_manager and content:
-                    run_manager.on_llm_new_token(content, chunk=chunk)
-                yield chunk
-
-            # Optionally yield usage metadata at the end if available
-            if self.stream_options and self.stream_options.get("include_usage"):
-                usage = getattr(completion, "usage", {})
-                usage_metadata = {
-                    "input_tokens": getattr(usage, "prompt_tokens", None),
-                    "output_tokens": getattr(usage, "completion_tokens", None),
-                    "total_tokens": getattr(usage, "total_tokens", None),
-                }
-                if any(v is not None for v in usage_metadata.values()):
-                    yield ChatGenerationChunk(
-                        message=AIMessageChunk(
-                            content="",
-                            usage_metadata=usage_metadata,  # type: ignore
-                        )
-                    )
+            finally:
+                if hasattr(stream, "close"):
+                    stream.close()
         except Exception as e:
             # Yield an error chunk if possible
             error_chunk = ChatGenerationChunk(
@@ -511,19 +536,19 @@ class ChatGradient(BaseChatModel):
             ... def get_weather(location: str) -> str:
             ...     '''Get weather for a location.'''
             ...     return f"Weather in {location}: sunny"
-            >>> 
+            >>>
             >>> llm = ChatGradient(model="llama3.3-70b-instruct")
             >>> llm_with_tools = llm.bind_tools([get_weather])
             >>> response = llm_with_tools.invoke("What's the weather in SF?")
         """
         formatted_tools = [convert_to_openai_tool(tool) for tool in tools]
-        
+
         formatted_tool_choice = tool_choice
         if tool_choice == "any":
             formatted_tool_choice = "required"
         elif tool_choice is None:
             formatted_tool_choice = "auto"
-        
+
         return self.bind(
             tools=formatted_tools,
             tool_choice=formatted_tool_choice,

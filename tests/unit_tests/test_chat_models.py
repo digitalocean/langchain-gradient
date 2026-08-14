@@ -218,7 +218,7 @@ class TestStreaming:
                     ]
                 )
 
-        monkeypatch.setattr("langchain_gradient.chat_models.Gradient", FakeGradient)
+        monkeypatch.setattr("langchain_gradient.chat_models.Client", FakeGradient)
 
         llm = ChatGradient(model="llama3.3-70b-instruct", api_key="test-key")
         chunks = list(llm._stream([HumanMessage(content="hi")]))
@@ -283,7 +283,7 @@ class TestStreamOptions:
         must be stripped from non-streaming requests."""
         captured: dict = {}
         monkeypatch.setattr(
-            "langchain_gradient.chat_models.Gradient", self._fake_gradient(captured)
+            "langchain_gradient.chat_models.Client", self._fake_gradient(captured)
         )
 
         llm = ChatGradient(
@@ -305,7 +305,7 @@ class TestStreamOptions:
         """stream_options is a valid parameter for streaming requests."""
         captured: dict = {}
         monkeypatch.setattr(
-            "langchain_gradient.chat_models.Gradient", self._fake_gradient(captured)
+            "langchain_gradient.chat_models.Client", self._fake_gradient(captured)
         )
 
         llm = ChatGradient(
@@ -317,3 +317,85 @@ class TestStreamOptions:
 
         assert captured.get("stream") is True
         assert captured.get("stream_options") == {"include_usage": True}
+
+
+class TestTimeoutValidation:
+    """Unit tests for timeout field validation."""
+
+    def test_float_is_coerced_to_int(self) -> None:
+        llm = ChatGradient(
+            model="llama3.3-70b-instruct", api_key="test-key", timeout=30.9
+        )
+        assert llm.timeout == 30
+        assert isinstance(llm.timeout, int)
+
+    def test_zero_raises(self) -> None:
+        import pytest
+
+        with pytest.raises(Exception):
+            ChatGradient(model="llama3.3-70b-instruct", api_key="test-key", timeout=0)
+
+    def test_negative_raises(self) -> None:
+        import pytest
+
+        with pytest.raises(Exception):
+            ChatGradient(model="llama3.3-70b-instruct", api_key="test-key", timeout=-1)
+
+    def test_none_raises(self) -> None:
+        import pytest
+
+        with pytest.raises(Exception):
+            ChatGradient(
+                model="llama3.3-70b-instruct", api_key="test-key", timeout=None
+            )
+
+    def test_valid_int_accepted(self) -> None:
+        llm = ChatGradient(
+            model="llama3.3-70b-instruct", api_key="test-key", timeout=60
+        )
+        assert llm.timeout == 60
+
+
+class TestResponseMetadata:
+    """Assert response_metadata structure against pydo DotDict-shaped responses."""
+
+    @staticmethod
+    def _make_client(completion):
+        class FakeClient:
+            def __init__(self, **kwargs) -> None:
+                self.chat = SimpleNamespace(
+                    completions=SimpleNamespace(create=lambda **kw: completion)
+                )
+
+        return FakeClient
+
+    def test_response_metadata_keys_and_values(self, monkeypatch) -> None:
+        fake_completion = SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        content="Paris", tool_calls=None, refusal=None
+                    ),
+                    finish_reason="stop",
+                )
+            ],
+            usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+            model="llama3.3-70b-instruct",
+            id="cmpl-abc123",
+        )
+        monkeypatch.setattr(
+            "langchain_gradient.chat_models.Client", self._make_client(fake_completion)
+        )
+
+        llm = ChatGradient(model="llama3.3-70b-instruct", api_key="test-key")
+        result = llm.invoke([HumanMessage(content="Capital of France?")])
+
+        meta = result.response_metadata
+        assert meta["finish_reason"] == "stop"
+        assert meta["model_name"] == "llama3.3-70b-instruct"
+        assert meta["id"] == "cmpl-abc123"
+        assert meta["token_usage"] == {
+            "completion_tokens": 5,
+            "prompt_tokens": 10,
+            "total_tokens": 15,
+        }

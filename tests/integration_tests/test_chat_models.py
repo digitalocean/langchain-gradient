@@ -123,20 +123,6 @@ def test_usage_metadata_in_invoke() -> None:
     assert result.content
     assert hasattr(result, "usage_metadata")
 
-
-# 7. Retries & Timeouts
-@pytest.mark.skipif(
-    not os.environ.get("DIGITALOCEAN_INFERENCE_KEY"),
-    reason="No Gradient API key set",
-)
-def test_timeout_param() -> None:
-    llm = ChatGradient(
-        api_key=os.environ.get("DIGITALOCEAN_INFERENCE_KEY"), timeout=0.0001
-    )
-    with pytest.raises(Exception):
-        llm.invoke([HumanMessage(content="This should timeout.")])
-
-
 # 8. Edge Cases
 @pytest.mark.skipif(
     not os.environ.get("DIGITALOCEAN_INFERENCE_KEY"),
@@ -169,4 +155,3 @@ def test_unicode_prompt() -> None:
     llm = ChatGradient(api_key=os.environ.get("DIGITALOCEAN_INFERENCE_KEY"))
     result = llm.invoke([HumanMessage(content="你好，世界! 🌍")])
     assert result.content is not None
-

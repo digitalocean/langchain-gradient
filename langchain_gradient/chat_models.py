@@ -81,7 +81,7 @@ class ChatGradient(BaseChatModel):
     user : str
         A unique identifier representing the user. Defaults to "langchain-gradient".
     timeout : int
-        HTTP connect/read timeout in seconds (also used as the retry budget).
+        HTTP connect/read idle timeout in seconds (also used as the retry budget).
         Must be > 0; floats are truncated. Defaults to 120 seconds.
     max_retries : int
         Max number of retries. Defaults to 2.
@@ -152,7 +152,7 @@ class ChatGradient(BaseChatModel):
     user: str = "langchain-gradient"
     """A unique identifier representing the user."""
     timeout: int = 120
-    """HTTP connect/read timeout in seconds (also used as the retry budget)."""
+    """HTTP connect/read idle timeout in seconds (also used as the retry budget)."""
 
     @field_validator("timeout", mode="before")
     @classmethod

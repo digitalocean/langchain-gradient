@@ -1,7 +1,16 @@
 # langchain-gradient  
 [![PyPI Downloads](https://static.pepy.tech/badge/langchain-gradient)](https://pepy.tech/projects/langchain-gradient)
 
-This package contains the LangChain integration with DigitalOcean
+This package contains the LangChain integration with DigitalOcean Gradient Serverless Inference.
+
+## Migrating to 1.0.0
+
+1.0.0 replaces the deprecated `gradient` SDK with `pydo` (Gradient SDK retires 2026-08-15).
+
+- Reinstall so you pick up `pydo`: `pip install -U "langchain-gradient>=1.0.0"`
+- Exception types now come from azure-core/pydo (not `gradient.*`)
+- `timeout` must be a positive int (default `120`); it is an HTTP connect/read idle timeout, not a total generation budget
+- See [CHANGELOG](CHANGELOG.md#100---2026-08-14) for the full breaking-change list
 
 ## Installation
 

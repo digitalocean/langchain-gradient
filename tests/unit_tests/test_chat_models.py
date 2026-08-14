@@ -355,6 +355,47 @@ class TestTimeoutValidation:
         )
         assert llm.timeout == 60
 
+    def test_timeout_passed_to_client_not_request_body(self, monkeypatch) -> None:
+        """timeout is a transport setting; it must not appear in the JSON body."""
+        client_kwargs: dict = {}
+        create_kwargs: dict = {}
+
+        class FakeClient:
+            def __init__(self, **kwargs) -> None:
+                client_kwargs.update(kwargs)
+                self.chat = SimpleNamespace(
+                    completions=SimpleNamespace(create=self._create)
+                )
+
+            def _create(self, **kwargs):
+                create_kwargs.update(kwargs)
+                return SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(
+                            message=SimpleNamespace(
+                                content="ok", tool_calls=None, refusal=None
+                            ),
+                            finish_reason="stop",
+                        )
+                    ],
+                    usage=SimpleNamespace(
+                        prompt_tokens=1, completion_tokens=1, total_tokens=2
+                    ),
+                    model="llama3.3-70b-instruct",
+                    id="cmpl-1",
+                )
+
+        monkeypatch.setattr("langchain_gradient.chat_models.Client", FakeClient)
+        llm = ChatGradient(
+            model="llama3.3-70b-instruct", api_key="test-key", timeout=45
+        )
+        llm.invoke([HumanMessage(content="hi")])
+
+        assert client_kwargs.get("timeout") == 45
+        assert client_kwargs.get("connection_timeout") == 45
+        assert client_kwargs.get("read_timeout") == 45
+        assert "timeout" not in create_kwargs
+
 
 class TestResponseMetadata:
     """Assert response_metadata structure against pydo DotDict-shaped responses."""

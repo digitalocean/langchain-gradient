@@ -15,7 +15,7 @@ ALLOWED_MODEL_FIELDS = {
     "top_logprobs",
     "top_p",
     "user",
-    "timeout",
+    # timeout is a client transport setting only — do not send it in the JSON body
     "stream_options",
     "tools",
     "tool_choice",

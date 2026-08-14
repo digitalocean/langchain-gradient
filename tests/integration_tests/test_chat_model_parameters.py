@@ -90,11 +90,15 @@ def test_top_p_param():
 
 
 def test_timeout_param():
-    with pytest.raises(Exception) as e:
-        llm = _basic_llm(timeout=1)
-        prompt = _basic_prompt()
+    llm = _basic_llm(timeout=1)
+    prompt = [
+        HumanMessage(
+            content="Write a detailed 2000 word essay on the history of computing."
+        )
+    ]
+    with pytest.raises(Exception) as excinfo:
         llm.invoke(prompt)
-        assert "timeout" in str(e).lower() or isinstance(e, Exception)
+    assert "timeout" in str(excinfo.value).lower()
 
 
 def test_stream_options_include_usage():

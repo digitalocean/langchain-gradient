@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "langchain-gradient"
-version = "0.2.1"
+version = "1.0.0"
 description = "An integration package connecting Digitalocean and LangChain"
 authors = []
 readme = "README.md"

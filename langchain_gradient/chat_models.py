@@ -80,8 +80,9 @@ class ChatGradient(BaseChatModel):
         Total probability mass of tokens to consider at each step.
     user : str
         A unique identifier representing the user. Defaults to "langchain-gradient".
-    timeout : Optional[int]
-        Timeout for requests. Defaults to 120 seconds.
+    timeout : int
+        Timeout for requests in seconds. Must be > 0; floats are truncated.
+        Defaults to 120 seconds.
     max_retries : int
         Max number of retries. Defaults to 2.
 
@@ -157,6 +158,8 @@ class ChatGradient(BaseChatModel):
     @classmethod
     def coerce_timeout_to_int(cls, v: Any) -> int:
         """Accept floats from older callers; truncate to int."""
+        if v is None:
+            raise ValueError("timeout must be a positive number of seconds")
         result = int(v)
         if result <= 0:
             raise ValueError("timeout must be greater than 0")

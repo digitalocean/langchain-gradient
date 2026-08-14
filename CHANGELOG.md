@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING**: Migrated the inference client from the deprecated `gradient` SDK to `pydo` (`pydo.inference.Client`). The Gradient SDK retires on 2026-08-15. (#32)
 - **BREAKING**: Exception types now come from azure-core/pydo (`HttpResponseError`, `ClientAuthenticationError`, `ServiceResponseTimeoutError`, etc.) instead of Gradient SDK exceptions. Update any `except gradient.*` handlers.
 - **BREAKING**: Response objects are now pydo `DotDict`s rather than Gradient/Stainless typed models. Attribute access still works; `response_metadata` shape is unchanged.
-- **BREAKING**: `timeout` is now a required positive `int` (default `120`). Floats are truncated; `None`, `0`, and negative values raise `ValidationError`. Sub-second floats (e.g. `0.5`) no longer work.
+- **BREAKING**: `timeout` is now a required positive `int` (default `120`). Floats are truncated; `None`, `0`, and negative values raise `ValidationError`. Sub-second floats (e.g. `0.5`) no longer work. The value is applied as azure-core `connection_timeout` / `read_timeout` (and the retry budget), so requests actually abort after N seconds.
 - User-agent is set via the public `user_agent` client kwarg.
 - Streaming responses now close the SSE stream in a `finally` block.
 

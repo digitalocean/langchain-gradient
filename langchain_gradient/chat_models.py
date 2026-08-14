@@ -81,8 +81,8 @@ class ChatGradient(BaseChatModel):
     user : str
         A unique identifier representing the user. Defaults to "langchain-gradient".
     timeout : int
-        Timeout for requests in seconds. Must be > 0; floats are truncated.
-        Defaults to 120 seconds.
+        HTTP connect/read timeout in seconds (also used as the retry budget).
+        Must be > 0; floats are truncated. Defaults to 120 seconds.
     max_retries : int
         Max number of retries. Defaults to 2.
 
@@ -152,7 +152,7 @@ class ChatGradient(BaseChatModel):
     user: str = "langchain-gradient"
     """A unique identifier representing the user."""
     timeout: int = 120
-    """Timeout for requests in seconds."""
+    """HTTP connect/read timeout in seconds (also used as the retry budget)."""
 
     @field_validator("timeout", mode="before")
     @classmethod
@@ -297,6 +297,8 @@ class ChatGradient(BaseChatModel):
         inference_client = Client(
             api_key=self.api_key,
             timeout=self.timeout,
+            connection_timeout=self.timeout,
+            read_timeout=self.timeout,
             retry_total=self.max_retries,
             user_agent=self.user_agent,
         )
@@ -384,6 +386,8 @@ class ChatGradient(BaseChatModel):
         inference_client = Client(
             api_key=self.api_key,
             timeout=self.timeout,
+            connection_timeout=self.timeout,
+            read_timeout=self.timeout,
             retry_total=self.max_retries,
             user_agent=self.user_agent,
         )
